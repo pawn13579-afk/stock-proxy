@@ -295,7 +295,19 @@ async function fetchUS_SEC(ticker, mcap) {
   const op = secAnnual(facts, ['OperatingIncomeLoss']);
   const ni = secAnnual(facts, ['NetIncomeLoss', 'ProfitLoss']);
   const eq = secAnnual(facts, ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest']);
-  const liab = secAnnual(facts, ['Liabilities']);
+  // 부채비율용 총부채: Liabilities 우선, 없으면 자산-자본 또는 유동+비유동
+  let liabVal = null;
+  {
+    const liab = secAnnual(facts, ['Liabilities']);
+    liabVal = liab[0] ? liab[0].val : null;
+    if (liabVal == null) {
+      const assets = secAnnual(facts, ['Assets']);
+      const lc = secAnnual(facts, ['LiabilitiesCurrent']);
+      const lnc = secAnnual(facts, ['LiabilitiesNoncurrent']);
+      if (assets[0] && eq[0]) liabVal = assets[0].val - eq[0].val;
+      else if (lc[0] && lnc[0]) liabVal = lc[0].val + lnc[0].val;
+    }
+  }
 
   const v = (arr, i = 0) => (arr[i] ? arr[i].val : null);
   const out = { _sec_used: [], _sec_period: rev[0] ? rev[0].end : null };
@@ -305,7 +317,7 @@ async function fetchUS_SEC(ticker, mcap) {
   // ROE = 순이익 ÷ 자본
   if (v(ni) != null && v(eq)) { out.roe = v(ni) / v(eq) * 100; out._sec_used.push('roe'); }
   // 부채비율 = 총부채 ÷ 자본 ×100
-  if (v(liab) != null && v(eq)) { out.debtRatio = v(liab) / v(eq) * 100; out._sec_used.push('debtRatio'); }
+  if (liabVal != null && v(eq)) { out.debtRatio = liabVal / v(eq) * 100; out._sec_used.push('debtRatio'); }
   // 매출성장 (최근연 ÷ 전년)
   if (v(rev, 0) && v(rev, 1)) { out.revGrowth = (v(rev, 0) / v(rev, 1) - 1) * 100; out._sec_used.push('revGrowth'); }
   // 영익성장
@@ -374,7 +386,7 @@ async function fetchUS(ticker, debug) {
     const resp = await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`);
     const txt = await resp.text();
     if (debug) _dbg.quoteRaw = txt.slice(0, 300);
-    if (txt.includes('Premium') || txt.includes('not available')) fmpBlocked = true;
+    if (txt.includes('Premium') || txt.includes('not available') || txt.includes('Limit Reach') || txt.includes('Error Message')) fmpBlocked = true;
     let q; try { q = JSON.parse(txt); } catch { q = null; }
     Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
   } catch (e) { if (debug) _dbg.quoteErr = String(e); }
