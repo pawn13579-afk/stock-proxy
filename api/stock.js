@@ -274,14 +274,15 @@ async function yfBeta(ticker) {
   const stock = await yfChartCloses(ticker, '1y');
   if (!stock || stock.length < 30) return null;
   if (!_spxReturns) {
-    const spx = await yfChartCloses('%5EGSPC', '1y'); // ^GSPC
+    // ^GSPC는 ^ 인코딩 이슈가 있어 S&P500 추종 ETF인 SPY로 대체 (거의 동일)
+    let spx = await yfChartCloses('SPY', '1y');
+    if (!spx || spx.length < 30) spx = await yfChartCloses('%5EGSPC', '1y'); // 폴백
     _spxReturns = spx && spx.length >= 30 ? dailyReturns(spx) : null;
   }
   if (!_spxReturns) return null;
   const sr = dailyReturns(stock);
   const n = Math.min(sr.length, _spxReturns.length);
   if (n < 30) return null;
-  // 끝(최근)에서 n개 맞춰 정렬
   const a = sr.slice(-n), b = _spxReturns.slice(-n);
   const mean = arr => arr.reduce((x, y) => x + y, 0) / arr.length;
   const ma = mean(a), mb = mean(b);
@@ -290,11 +291,34 @@ async function yfBeta(ticker) {
   return varb > 0 ? cov / varb : null;
 }
 
-// 목표가: Yahoo quoteSummary financialData (crumb 필요 시 실패하면 null)
-async function yfTarget(ticker) {
+// 목표가: Yahoo quoteSummary financialData (crumb+cookie 2단계 인증)
+let _yfCrumb = null, _yfCookie = null;
+async function yfGetCrumb() {
+  if (_yfCrumb && _yfCookie) return true;
   try {
-    const r = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData`,
-      { headers: { 'User-Agent': YF_UA } });
+    // 1) 쿠키 받기
+    const r1 = await fetch('https://fc.yahoo.com', { headers: { 'User-Agent': YF_UA } });
+    let cookie = r1.headers.get('set-cookie');
+    if (!cookie) {
+      const r1b = await fetch('https://finance.yahoo.com', { headers: { 'User-Agent': YF_UA } });
+      cookie = r1b.headers.get('set-cookie');
+    }
+    if (cookie) _yfCookie = cookie.split(';')[0];
+    // 2) crumb 받기
+    const r2 = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb',
+      { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
+    const crumb = await r2.text();
+    if (crumb && crumb.length < 30 && !crumb.includes('<')) { _yfCrumb = crumb; return true; }
+  } catch (e) {}
+  return false;
+}
+
+async function yfTarget(ticker, debug) {
+  try {
+    await yfGetCrumb();
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData` +
+      (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
+    const r = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
     if (!r.ok) return null;
     const j = await r.json();
     const fd = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0] && j.quoteSummary.result[0].financialData;
@@ -515,13 +539,15 @@ async function fetchUS(ticker, debug) {
         if (debug) {
           // 베타·목표가 실패 원인 진단
           const sc = await yfChartCloses(ticker, '1y');
-          const spx = await yfChartCloses('%5EGSPC', '1y');
+          const spy = await yfChartCloses('SPY', '1y');
+          const gotCrumb = await yfGetCrumb();
           let tgRaw = null;
           try {
-            const tr = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=financialData`, { headers: { 'User-Agent': YF_UA } });
+            const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=financialData` + (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
+            const tr = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
             tgRaw = (await tr.text()).slice(0, 200);
           } catch (e) { tgRaw = 'ERR:' + String(e); }
-          kis._yf = { stockCloses: sc ? sc.length : null, spxCloses: spx ? spx.length : null, betaResult: bt, targetRaw: tgRaw };
+          kis._yf = { stockCloses: sc ? sc.length : null, spyCloses: spy ? spy.length : null, betaResult: bt, gotCrumb, crumb: _yfCrumb ? _yfCrumb.slice(0, 8) + '...' : null, targetRaw: tgRaw };
         }
       } catch (e) { if (debug) kis._yfErr = String(e); }
       if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC+YF' };
