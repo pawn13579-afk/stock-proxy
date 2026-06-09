@@ -136,6 +136,25 @@ async function fetchKR(code) {
   if (op != null && sale) opMargin = op / sale * 100;
   if (mcapUnit != null && sale) psr = mcapUnit / sale;
 
+  // 5) 종목투자의견: 최근 ~6개월 증권사 목표가 평균 (컨센서스)
+  let target = null;
+  try {
+    await sleep(150);
+    const today = new Date();
+    const d2 = today.toISOString().slice(0, 10).replace(/-/g, '');
+    const past = new Date(today.getTime() - 1000 * 60 * 60 * 24 * 180);
+    const d1 = past.toISOString().slice(0, 10).replace(/-/g, '');
+    const op2 = await kisGet(
+      '/uapi/domestic-stock/v1/quotations/invest-opinion',
+      { FID_COND_MRKT_DIV_CODE: 'J', FID_COND_SCR_DIV_CODE: '16633',
+        FID_INPUT_ISCD: code, FID_INPUT_DATE_1: d1, FID_INPUT_DATE_2: d2 },
+      'FHKST663300C0'
+    );
+    const rows = Array.isArray(op2.output) ? op2.output : [];
+    const goals = rows.map(r => num(r.hts_goal_prc)).filter(v => v && v > 0);
+    if (goals.length) target = Math.round(goals.reduce((a, b) => a + b, 0) / goals.length);
+  } catch (e) {}
+
   return {
     price: num(o.stck_prpr),
     per: num(o.per),
@@ -149,7 +168,7 @@ async function fetchKR(code) {
     lo52: num(o.w52_lwpr),
     hi52: num(o.w52_hgpr),
     beta: null,
-    target: null,
+    target: target,
     mcap: mcapUnit,
     eps: num(o.eps),
     bps: num(o.bps),
