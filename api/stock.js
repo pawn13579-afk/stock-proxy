@@ -512,7 +512,18 @@ async function fetchUS(ticker, debug) {
         if (bt != null) { kis.beta = bt; kis._src_api += '+YF'; }
         if (tg != null) { kis.target = tg; if (!kis._src_api.includes('YF')) kis._src_api += '+YF'; }
         if (st && st.length > 1) { kis.ret3m = (st[st.length - 1] / st[0] - 1) * 100; if (!kis._src_api.includes('YF')) kis._src_api += '+YF'; }
-      } catch (e) {}
+        if (debug) {
+          // 베타·목표가 실패 원인 진단
+          const sc = await yfChartCloses(ticker, '1y');
+          const spx = await yfChartCloses('%5EGSPC', '1y');
+          let tgRaw = null;
+          try {
+            const tr = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=financialData`, { headers: { 'User-Agent': YF_UA } });
+            tgRaw = (await tr.text()).slice(0, 200);
+          } catch (e) { tgRaw = 'ERR:' + String(e); }
+          kis._yf = { stockCloses: sc ? sc.length : null, spxCloses: spx ? spx.length : null, betaResult: bt, targetRaw: tgRaw };
+        }
+      } catch (e) { if (debug) kis._yfErr = String(e); }
       if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC+YF' };
       return kis;
     }
