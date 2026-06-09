@@ -73,17 +73,17 @@
   .fbtn{background:var(--panel2);border:1px solid var(--line);color:var(--dim);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer}
   .fbtn:hover{color:var(--fg)}
   .fbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-  table.coreonly th:nth-child(n+6):nth-child(-n+24),table.coreonly td:nth-child(n+6):nth-child(-n+24){display:none}
+  #tbl.coreonly th:nth-child(n+6):nth-child(-n+24),#tbl.coreonly td:nth-child(n+6):nth-child(-n+24){display:none}
   th.sortable{cursor:pointer} th.sortable:hover{color:var(--fg)}
   @media (max-width:760px){
     header h1{font-size:18px} .sub,.warnbar{font-size:11px}
     .controls{gap:6px} .summary{grid-template-columns:repeat(2,1fr)}
     .charts{grid-template-columns:1fr} .chcard.wide{grid-column:span 1}
     .topll{grid-template-columns:1fr}
-    /* 모바일: 자동으로 핵심 컬럼만 (가로 스크롤 최소화) */
-    table th:nth-child(n+6):nth-child(-n+24),table td:nth-child(n+6):nth-child(-n+24){display:none}
-    table.showall th:nth-child(n+6):nth-child(-n+24),table.showall td:nth-child(n+6):nth-child(-n+24){display:table-cell}
-    .histtbl th:nth-child(6),.histtbl td:nth-child(6){display:none}
+    /* 모바일: 메인 테이블만 자동으로 핵심 컬럼만 (가로 스크롤 최소화) */
+    #tbl th:nth-child(n+6):nth-child(-n+24),#tbl td:nth-child(n+6):nth-child(-n+24){display:none}
+    #tbl.showall th:nth-child(n+6):nth-child(-n+24),#tbl.showall td:nth-child(n+6):nth-child(-n+24){display:table-cell}
+    .histtbl th:nth-child(3),.histtbl td:nth-child(3){display:none}
     .tblctl{font-size:10px;gap:10px}
     .card .v{font-size:17px}
   }
