@@ -295,7 +295,7 @@ function matchByEnd(a, b, idxA = 0) {
   return [a[idxA].val, match ? match.val : null];
 }
 
-async function fetchUS_SEC(ticker, mcap) {
+async function fetchUS_SEC(ticker, mcap, debug) {
   const cik = await getCik(ticker);
   if (!cik) return null;
   let facts;
@@ -326,6 +326,20 @@ async function fetchUS_SEC(ticker, mcap) {
   }
 
   const out = { _sec_used: [], _sec_period: rev[0] ? rev[0].end : null };
+  if (debug) {
+    const gaap = (facts.facts && facts.facts['us-gaap']) || {};
+    out._sec_dbg = {};
+    for (const t of ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet']) {
+      const u = gaap[t] && gaap[t].units && gaap[t].units.USD;
+      if (u && u.length) {
+        const tenk = u.filter(x => x.form === '10-K');
+        const latest = tenk.sort((a, b) => b.end.localeCompare(a.end))[0];
+        out._sec_dbg[t] = { count: u.length, latest10K: latest ? { end: latest.end, start: latest.start, val: latest.val } : null };
+      }
+    }
+    out._sec_dbg.revPicked = rev[0] ? { end: rev[0].end, val: rev[0].val } : null;
+    out._sec_dbg.opPicked = op[0] ? { end: op[0].end, val: op[0].val } : null;
+  }
   const fyEnd = rev[0] ? rev[0].end : null; // 기준 회계연도 말일
 
   // 영업이익률 = 같은 연도 영업이익 ÷ 매출
@@ -417,7 +431,7 @@ async function fetchUS(ticker, debug) {
     if (kis) {
       // SEC EDGAR로 ROE·영익률·부채비율·성장률·PSR 보강 (시총은 KIS 값 사용)
       try {
-        const sec = await fetchUS_SEC(ticker, kis.mcap);
+        const sec = await fetchUS_SEC(ticker, kis.mcap, debug);
         if (sec) {
           if (sec.opMargin != null) kis.opMargin = sec.opMargin;
           if (sec.roe != null) kis.roe = sec.roe;
@@ -426,7 +440,7 @@ async function fetchUS(ticker, debug) {
           if (sec.opGrowth != null) kis.opGrowth = sec.opGrowth;
           if (sec.psr != null) kis.psr = sec.psr;
           kis._src_api = (kis._src_api || 'KIS') + '+SEC';
-          if (debug) kis._sec = { used: sec._sec_used, period: sec._sec_period };
+          if (debug) kis._sec = { used: sec._sec_used, period: sec._sec_period, dbg: sec._sec_dbg };
         }
       } catch (e) {}
       if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC' };
