@@ -242,6 +242,80 @@ async function fetchKR(code) {
   };
 }
 
+// ---- SEC EDGAR: 미국 기업 재무 (무료·키없음·종목무제한). 티커→CIK→companyfacts ----
+const SEC_UA = 'portfolio-sell-tool contact@example.com'; // SEC 요구 User-Agent
+let _cikMap = null; // 티커→CIK 캐시
+
+async function getCik(ticker) {
+  if (!_cikMap) {
+    try {
+      const r = await fetch('https://www.sec.gov/files/company_tickers.json',
+        { headers: { 'User-Agent': SEC_UA } });
+      const j = await r.json();
+      _cikMap = {};
+      for (const k in j) _cikMap[j[k].ticker.toUpperCase()] = String(j[k].cik_str).padStart(10, '0');
+    } catch (e) { _cikMap = {}; }
+  }
+  return _cikMap[ticker.toUpperCase()] || null;
+}
+
+// companyfacts에서 한 개념(여러 후보 태그)의 연간(FY) 값들을 최신순으로
+function secAnnual(facts, tags, unit = 'USD') {
+  const gaap = (facts.facts && facts.facts['us-gaap']) || {};
+  for (const tag of tags) {
+    const u = gaap[tag] && gaap[tag].units && gaap[tag].units[unit];
+    if (!u || !u.length) continue;
+    // 연간(10-K, fp=FY) 우선, 중복 end는 최신 filed
+    const fy = u.filter(x => x.form === '10-K' && x.fp === 'FY' && x.frame);
+    const pool = fy.length ? fy : u.filter(x => x.form === '10-K');
+    if (!pool.length) continue;
+    const seen = {};
+    for (const e of pool) {
+      if (!seen[e.end] || e.filed > seen[e.end].filed) seen[e.end] = e;
+    }
+    const arr = Object.values(seen).sort((a, b) => b.end.localeCompare(a.end));
+    if (arr.length) return arr; // [{val,end,...}, ...] 최신순
+  }
+  return [];
+}
+
+async function fetchUS_SEC(ticker, mcap) {
+  const cik = await getCik(ticker);
+  if (!cik) return null;
+  let facts;
+  try {
+    const r = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`,
+      { headers: { 'User-Agent': SEC_UA } });
+    if (!r.ok) return null;
+    facts = await r.json();
+  } catch (e) { return null; }
+
+  // 후보 태그(회사마다 다름)
+  const rev = secAnnual(facts, ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'SalesRevenueGoodsNet']);
+  const op = secAnnual(facts, ['OperatingIncomeLoss']);
+  const ni = secAnnual(facts, ['NetIncomeLoss', 'ProfitLoss']);
+  const eq = secAnnual(facts, ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest']);
+  const liab = secAnnual(facts, ['Liabilities']);
+
+  const v = (arr, i = 0) => (arr[i] ? arr[i].val : null);
+  const out = { _sec_used: [], _sec_period: rev[0] ? rev[0].end : null };
+
+  // 영업이익률
+  if (v(op) != null && v(rev)) { out.opMargin = v(op) / v(rev) * 100; out._sec_used.push('opMargin'); }
+  // ROE = 순이익 ÷ 자본
+  if (v(ni) != null && v(eq)) { out.roe = v(ni) / v(eq) * 100; out._sec_used.push('roe'); }
+  // 부채비율 = 총부채 ÷ 자본 ×100
+  if (v(liab) != null && v(eq)) { out.debtRatio = v(liab) / v(eq) * 100; out._sec_used.push('debtRatio'); }
+  // 매출성장 (최근연 ÷ 전년)
+  if (v(rev, 0) && v(rev, 1)) { out.revGrowth = (v(rev, 0) / v(rev, 1) - 1) * 100; out._sec_used.push('revGrowth'); }
+  // 영익성장
+  if (v(op, 0) != null && v(op, 1)) { out.opGrowth = (v(op, 0) / v(op, 1) - 1) * 100; out._sec_used.push('opGrowth'); }
+  // PSR = 시총 ÷ 매출 (시총은 KIS/FMP에서 받은 값)
+  if (mcap != null && v(rev)) { out.psr = mcap / v(rev); out._sec_used.push('psr'); }
+
+  return out;
+}
+
 // ---- 미국주식 KIS 폴백: FMP 무료키에서 막힌 종목용 (현재가·PER·PBR·EPS·52주·시총) ----
 //      거래소를 모를 때 NAS→NYS→AMS 순서로 자동 탐색
 async function fetchUS_KIS(ticker) {
@@ -305,11 +379,25 @@ async function fetchUS(ticker, debug) {
     Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
   } catch (e) { if (debug) _dbg.quoteErr = String(e); }
 
-  // FMP가 이 종목을 막았으면(Premium) → KIS 해외 API로 폴백
+  // FMP가 이 종목을 막았으면(Premium) → KIS 해외(시세·PER·PBR·시총) + SEC EDGAR(재무비율) 병합
   if (fmpBlocked || Q.price == null) {
     const kis = await fetchUS_KIS(ticker);
     if (kis) {
-      if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS' };
+      // SEC EDGAR로 ROE·영익률·부채비율·성장률·PSR 보강 (시총은 KIS 값 사용)
+      try {
+        const sec = await fetchUS_SEC(ticker, kis.mcap);
+        if (sec) {
+          if (sec.opMargin != null) kis.opMargin = sec.opMargin;
+          if (sec.roe != null) kis.roe = sec.roe;
+          if (sec.debtRatio != null) kis.debtRatio = sec.debtRatio;
+          if (sec.revGrowth != null) kis.revGrowth = sec.revGrowth;
+          if (sec.opGrowth != null) kis.opGrowth = sec.opGrowth;
+          if (sec.psr != null) kis.psr = sec.psr;
+          kis._src_api = (kis._src_api || 'KIS') + '+SEC';
+          if (debug) kis._sec = { used: sec._sec_used, period: sec._sec_period };
+        }
+      } catch (e) {}
+      if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC' };
       return kis;
     }
     // KIS도 실패하면 FMP 나머지라도 시도 (아래 계속)
