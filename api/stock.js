@@ -181,19 +181,28 @@ async function fetchKR(code) {
     }
   } catch (e) {}
 
-  // 7) 수급: 최근 일별 외국인+기관 순매수 누적 (순매수 수량 ÷ 누적거래량으로 정규화)
+  // 7) 수급: 최근 일별 외국인+기관 순매수 누적 (순매수 ÷ 누적거래량으로 정규화)
+  //    당일분은 장 마감(15:40) 후에만 조회되므로, 시작일을 며칠 전으로 두어 직전 거래일까지 확보
   let flowScore = null, frgnNtby = null, orgnNtby = null;
-  try {
-    await sleep(150);
-    const today = new Date();
-    const d1 = today.toISOString().slice(0, 10).replace(/-/g, '');
-    const flow = await kisGet(
+  const fetchFlow = async (daysAgo) => {
+    const dt = new Date(Date.now() - 1000 * 60 * 60 * 24 * daysAgo);
+    const d1 = dt.toISOString().slice(0, 10).replace(/-/g, '');
+    return kisGet(
       '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
       { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: code,
         FID_INPUT_DATE_1: d1, FID_ORG_ADJ_PRC: '', FID_ETC_CLS_CODE: '1' },
       'FHPTJ04160001'
     );
-    const rows = Array.isArray(flow.output2) ? flow.output2 : [];
+  };
+  try {
+    await sleep(150);
+    let flow = await fetchFlow(2);            // 2일 전부터 (주말·장중 대비)
+    let rows = Array.isArray(flow.output2) ? flow.output2 : [];
+    if (!rows.length) {                        // 비면 더 과거(연휴 등)
+      await sleep(300);
+      flow = await fetchFlow(7);
+      rows = Array.isArray(flow.output2) ? flow.output2 : [];
+    }
     if (rows.length) {
       let f = 0, g = 0, vol = 0;
       for (const r of rows) {
@@ -202,7 +211,6 @@ async function fetchKR(code) {
         vol += num(r.acml_vol) || 0;
       }
       frgnNtby = f; orgnNtby = g;
-      // 외인+기관 순매수 ÷ 누적거래량 (%) — 종목 규모 무관 비교 가능
       if (vol > 0) flowScore = (f + g) / vol * 100;
     }
   } catch (e) {}
