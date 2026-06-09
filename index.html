@@ -199,6 +199,43 @@ function volRange(h){if(h.lo52==null||h.hi52==null||!price(h))return null;return
 // 백분위
 function pct(getter,dir,h){const raw=getter(h);if(raw==null)return null;const vals=HOLD.map(getter).filter(x=>x!=null).sort((a,b)=>a-b);if(vals.length<2)return 5.5;let r=vals.filter(v=>v<raw).length,p=r/(vals.length-1);if(dir<0)p=1-p;return 1+p*9;}
 function avg(arr){const v=arr.filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}
+
+// ===== 섹터 분류 (분산기여 계산용) =====
+const SECTORS={'NVDA':'반도체','AMD':'반도체','AVGO':'반도체','MRVL':'반도체','SMH(ETF)':'반도체','INTC':'반도체','SK하이닉스':'반도체','삼성전자':'반도체','에이직랜드':'반도체','필옵틱스':'반도체','MSFT':'빅테크','GOOGL':'빅테크','META':'빅테크','AAPL':'빅테크','NFLX':'빅테크','ORCL':'빅테크','PLTR':'AI소프트','셀바스AI':'AI소프트','SATL':'우주','CRCL':'크립토','비트코인':'크립토','DXYZ(ETF)':'벤처테크','TSLA':'전기차','에코프로비엠':'2차전지','LG에너지솔루션':'2차전지','코스모신소재':'2차전지','한화오션':'조선','두산에너빌리티':'원전','TIGER원자력(ETF)':'원전','POSCO홀딩스':'소재','대우건설':'건설','KODEX200(ETF)':'지수','1Q200액티브(ETF)':'지수'};
+function sectorOf(h){return h.sector||SECTORS[h.n]||'기타';}
+function sectorShare(h){ // 이 종목이 속한 섹터의 포트폴리오 총 비중(%)
+  const sec=sectorOf(h), tot=totalEval()||1;
+  return HOLD.filter(x=>sectorOf(x)===sec).reduce((s,x)=>s+evalManwon(x),0)/tot*100;
+}
+
+// ===== 5인자 매도 우선도 (전 자산 공통 척도, 높을수록 먼저 매도) =====
+// 가중치 (합 1.0)
+let FW={ER:0.30, DIV:0.25, VOL:0.20, CONC:0.15, TAX:0.10};
+// ① 기대수익: 목표가 상승여력 낮을수록 매도(일반주만). 없으면 null→수축
+function f_ER(h){return pct(expRet,-1,h);}
+// ② 분산기여: 같은 섹터에 많이 쏠릴수록 빼도 분산유지=매도우선(↑)
+function f_DIV(h){return pct(sectorShare,+1,h);}
+// ③ 변동성: 베타/52주변동폭 클수록 위험→매도우선(↑). 전 자산
+function f_VOL(h){
+  if(h.beta!=null){const v=HOLD.map(x=>x.beta).filter(x=>x!=null).sort((a,b)=>a-b);if(v.length<2)return 5.5;return 1+(v.filter(x=>x<h.beta).length/(v.length-1))*9;}
+  return pct(volRange,+1,h);
+}
+// ④ 집중도: 개별 종목 비중 클수록 매도우선(↑). 전 자산
+function f_CONC(h){return pct(x=>evalManwon(x),+1,h);}
+// ⑤ 세금: 미국주 차익 클수록 매도 부담(↓=낮은점수), 손실이면 상계가치(↑). 한국·코인 중립
+function f_TAX(h){
+  if(h.mkt!=='US')return 5.5;
+  const g=gainManwon(h);
+  if(g<=0)return 8; // 손실 종목은 팔면 상계 이득
+  return pct(x=>x.mkt==='US'?gainManwon(x):null,-1,h); // 차익 클수록 낮은 점수(매도 부담)
+}
+// 통합 매도 우선도 (수축: 빠진 인자는 중립 5.5)
+function sellPriority(h){
+  const parts={ER:f_ER(h),DIV:f_DIV(h),VOL:f_VOL(h),CONC:f_CONC(h),TAX:f_TAX(h)};
+  let ws=0,vs=0;
+  for(const k in FW){const v=parts[k]!=null?parts[k]:5.5; ws+=FW[k]; vs+=FW[k]*v;}
+  return {score:ws>0?vs/ws:null, parts};
+}
 function erScore(h){return pct(expRet,-1,h);}
 function valScore(h){ // PER/PBR/PSR 높을수록 매도. PER<=0(적자)=최악
   if(h.per!=null&&h.per<=0)return 9.5;
@@ -208,24 +245,19 @@ function growthScore(h){return avg([pct(x=>x.revGrowth,-1,h),pct(x=>x.opGrowth,-
 function profitScore(h){return avg([pct(x=>x.opMargin,-1,h),pct(x=>x.roe,-1,h),pct(x=>x.debtRatio,+1,h)]);}
 function momScore(h){
   let p=[pct(pos52,+1,h),pct(x=>x.ret3m,-1,h)];
-  // 이동평균: 현재가가 이평선 아래면 하락추세=매도우선(높은점수), 위면 상승추세=후순위(낮은점수)
   if(h.px!=null&&h.ma20!=null&&h.ma20>0)p.push(h.px>=h.ma20?3.5:7.5);
   if(h.px!=null&&h.ma60!=null&&h.ma60>0)p.push(h.px>=h.ma60?3.5:7.5);
   return avg(p);
 }
-function rarScore(h){ // 위험: 베타 있으면 베타, 없으면(코인·일부ETF) 52주 변동폭으로 — 둘 다 높을수록 매도우선
-  // 베타 보유 종목은 베타 백분위, 미보유 종목은 변동폭 백분위. 같은 "위험" 축이라 혼용.
+function rarScore(h){
   if(h.beta!=null){
-    // 베타 가진 종목들 사이 백분위
     const vals=HOLD.map(x=>x.beta).filter(x=>x!=null).sort((a,b)=>a-b);
     if(vals.length<2)return 5.5;
     const r=vals.filter(v=>v<h.beta).length;return 1+(r/(vals.length-1))*9;
   }
-  // 베타 없으면 변동폭으로 (전체 종목 변동폭 분포 기준)
   return pct(volRange,+1,h);
 }
 function flowScore(h){if(h.noflow)return null;
-  // API 수급 강도(순매수÷거래량 %)가 있으면 강도까지 반영. 순매수↑=매도후순위(낮은점수), 순매도↑=매도우선(높은점수)
   if(h.flowRaw!=null){const x=Math.max(-3,Math.min(3,h.flowRaw));return 5.5-(x/3)*4.5;}
   const f=[h.frn,h.inst].filter(x=>x!=null);if(!f.length)return null;const net=f.reduce((a,b)=>a+b,0)/f.length;return 5.5-net*4.5;}
 function concScore(h){const p=evalManwon(h)/totalEval()*100;return Math.max(1,Math.min(10,2+(p/15)*8));}
@@ -238,19 +270,19 @@ function sellScore(h){
   return{score:(vs/ws)*10,partial:used<avail,used,avail,parts};
 }
 // 축별 점수 툴팁 텍스트 (각 축 점수 × 가중치, 기여도 순)
-function scoreTooltip(parts){
-  const names={ER:'기대수익',VAL:'밸류',GROWTH:'성장',PROFIT:'수익성',MOM:'모멘텀',CONC:'집중도',RAR:'위험(베타)',FLOW:'수급',TAX:'세금'};
-  const sigKeys=['ER','VAL','GROWTH','PROFIT','MOM']; // 매도신호 구성
-  const rows=['【매도신호 구성: 기대수익 낮을수록 높음】'];
-  for(const k of sigKeys){
+function scoreTooltip(parts,hasER){
+  const names={ER:'기대수익(목표가)',DIV:'분산기여(섹터쏠림)',VOL:'변동성(베타)',CONC:'집중도(비중)',TAX:'세금효율'};
+  const W=FW;
+  const rows=['【매도 우선도 5인자 (높을수록 먼저 매도)】'];
+  for(const k of ['ER','DIV','VOL','CONC','TAX']){
     const v=parts[k];
-    rows.push('  '+names[k]+': '+(v==null?'-':v.toFixed(1)));
+    let line='  '+names[k]+': '+(W[k]*100).toFixed(0)+'% × ';
+    if(k==='ER'&&!hasER){line+='- (목표가 없음→중립5.5 보정)';}
+    else if(v==null){line+='-';}
+    else{line+=v.toFixed(1)+' = '+(v*W[k]).toFixed(2);}
+    rows.push(line);
   }
-  rows.push('【아래는 참고: 집중도·위험·세금 (매도신호엔 미포함, 플랜의 제약으로 반영)】');
-  for(const k of ['CONC','RAR','TAX','FLOW']){
-    const v=parts[k];
-    rows.push('  '+names[k]+': '+(v==null?'-':v.toFixed(1)));
-  }
+  if(!hasER)rows.push('※ 목표가 없는 자산(ETF·코인·소형주)은 기대수익을 중립 처리');
   return rows.join('\n');
 }
 function rateBadge(r){if(!r)return '';let c=r==='Strong Buy'?'var(--pos)':r==='Buy'?'#4a9ed6':r==='Hold'?'var(--warn)':r==='ETF'?'var(--faint)':'var(--neg)';return '<span class="ratebadge" style="background:'+c+'22;color:'+c+'">'+r+'</span>';}
@@ -313,7 +345,7 @@ async function fillAll(){
 function render(){
   const tb=document.getElementById('tbody');tb.innerHTML='';
   // 테이블 순위 = 매도플랜과 동일 기준(매도신호: 기대수익 낮을수록 높음). 9축 종합점수는 툴팁 참고용.
-  const scored=HOLD.map((h,i)=>{const sig=sellSignal(h);const full=sellScore(h);return {h,i,score:sig,partial:full?full.partial:true,parts:full?full.parts:null};});
+  const scored=HOLD.map((h,i)=>{const r=sellPriority(h);const fullAxes=['ER','DIV','VOL','CONC','TAX'].filter(k=>{const p=r.parts[k];return p!=null&&(k!=='ER'||expRet(h)!=null);}).length;return {h,i,score:r?r.score:null,parts:r?r.parts:null,hasER:expRet(h)!=null};});
   scored.sort((a,b)=>{if(a.score==null&&b.score==null)return 0;if(a.score==null)return 1;if(b.score==null)return -1;return b.score-a.score;});
   scored.forEach((row,rank)=>{
     const h=row.h,i=row.i,sc=row.score,pr=price(h),er=expRet(h),ps=pos52(h);
@@ -344,7 +376,7 @@ function render(){
       '<td>'+selFlow(h,i,'inst')+'</td>'+
       '<td class="num '+(er!=null?(er>=0?'pos':'neg'):'')+'">'+(er!=null?(er>0?'+':'')+er.toFixed(0):'—')+'</td>'+
       '<td class="num" style="color:var(--faint)">'+(ps!=null?(ps*100).toFixed(0)+'%':'—')+'</td>'+
-      '<td><span class="score" style="background:'+scC+'22;color:'+scC+'" title="'+(sc!=null?scoreTooltip(row.parts).replace(/"/g,'&quot;'):'')+'">'+(sc!=null?(row.partial?'●':'')+sc.toFixed(1):'-')+'</span></td>';
+      '<td><span class="score" style="background:'+scC+'22;color:'+scC+'" title="'+(sc!=null?scoreTooltip(row.parts,row.hasER).replace(/"/g,'&quot;'):'')+'">'+(sc!=null?sc.toFixed(1)+(!row.hasER?' <span style="font-size:8px;color:var(--warn)">(목표가x)</span>':''):'-')+'</span></td>';
     tb.appendChild(tr);
   });
   renderSummary();renderPlans(scored);
@@ -367,10 +399,9 @@ function planLine(h,amt,cum,sig,tag,extra){return '<div class="planrow"><span cl
 
 // 기대수익 신호: 낮을수록 팔아야(높은 신호). ER·VAL·GROWTH·PROFIT·MOM만 통합(집중도·세금·수급 제외 — 그건 비용/제약이지 기대수익 아님)
 function sellSignal(h){
-  const r=sellScore(h); if(!r||!r.parts)return null;
-  const p=r.parts, keys=['ER','VAL','GROWTH','PROFIT','MOM'];
-  const v=keys.map(k=>p[k]).filter(x=>x!=null);
-  return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
+  // 5인자 매도 우선도(기대수익·분산기여·변동성·집중도·세금). 전 자산 공통 척도.
+  const r=sellPriority(h);
+  return r?r.score:null;
 }
 // 종목 평가차익(만원) = 평가 - 원금. 매입단가 기반(gainManwon 사용)
 function gainOf(h){return gainManwon(h);}
@@ -385,7 +416,7 @@ function renderPlans(scored){
   const cands=HOLD.filter(h=>sellSignal(h)!=null);
   const allFilled=HOLD.every(h=>{const r=sellScore(h);return r.score!=null&&!r.partial;});
   let html='<h3>이번 매도 플랜 ('+AMT+'만원 · 세후 기대효용 최대화)</h3>';
-  html+='<div class="pn">이번 1회분만 계산합니다. 다음 회차는 그때 자료를 새로 받아 다시 산출하세요(가격·실적·시장이 바뀌므로). 기대수익 낮은 종목 우선 · 양도세는 거래비용으로 차감(미국주 연 '+DEDUCT+'만 공제후 '+(RATE*100)+'%, 올해 기실현 '+usYTD+'만 반영) · 손실종목 상계 자동 · 변동성 큰 종목 쏠림은 리스크비용 차감</div>';
+  html+='<div class="pn">이번 1회분만 계산합니다. 다음 회차는 그때 자료를 새로 받아 다시 산출하세요(가격·실적·시장이 바뀌므로). <b>매도 우선도 5인자</b>: 기대수익(목표가)·분산기여(섹터쏠림)·변동성·집중도·세금효율. 전 자산 동일 척도. 양도세는 미국주 연 '+DEDUCT+'만 공제후 '+(RATE*100)+'%(올해 기실현 '+usYTD+'만 반영), 한 종목은 이번 금액의 35%까지만.</div>';
   if(!allFilled)html+='<div class="pn" style="color:var(--warn)">⚠️ 데이터 빈 종목은 신호가 잠정입니다. [API 자동채우기]로 채우면 정확해집니다.</div>';
   if(AMT<STEP){html+='<div class="planrow"><span class="empty">팔 금액을 입력하세요</span></div>';document.getElementById('plans').innerHTML=html;return;}
 
@@ -396,46 +427,33 @@ function renderPlans(scored){
   const sold={}; cands.forEach(h=>sold[h.n]=0);
   let usGainCum=usYTD;  // 세금 기준점 = 올해 이미 실현한 차익부터 시작
 
-  // 한 STEP을 어느 종목에서 뺄지: net = 매도신호 - 세금페널티 - 변동성쏠림페널티
-  // 세금: 공제(250만) 초과분에만 22% 한계세율 → 공제 안이면 페널티 0 (이미 그렇게 계산)
-  // 변동성 쏠림: 베타 큰 종목은 이번 금액의 35%를 하드상한(그 이상 못 뽑음) + 그 전에도 누진 페널티
-  const VOL_CAP_RATIO=0.35;   // 고변동 종목 한 종목 상한 (이번 금액 대비)
-  const SOFT_RATIO=0.20;      // 이 비율 넘으면 페널티 누진 시작
+  // 매도 우선도(sellSignal)에 이미 세금·변동성·집중도가 반영됨.
+  // 배분 단계에선 이중계산 없이 우선도 순서를 따르되, 두 하드 제약만 적용:
+  //  ① 한 종목 상한: 이번 금액의 35% (한 종목 몰빵 방지)
+  //  ② 세금 공제 추적: 미국주 차익 누적해 표시 (우선도에 이미 반영됐으므로 배분은 멈추지 않음)
+  const ONE_CAP_RATIO=0.35;
   function pickStep(){
-    let best=null, bestNet=-1e9, bestInfo=null;
+    let best=null, bestSig=-1e9;
     for(const h of cands){
       const remain=evalManwon(h)-sold[h.n];
       if(remain<STEP-0.01)continue;
-      const bn=betaNorm(h.beta); // 0~1, 베타 클수록 1
-      // 변동성 큰 종목 하드 상한: 베타 정규화>0.5면 이번 금액의 35%까지만
-      if(bn>0.5 && sold[h.n]>=AMT*VOL_CAP_RATIO-0.01)continue;
+      // 한 종목 상한 (전 종목 공통): 이번 금액의 35%까지만
+      if(sold[h.n]>=AMT*ONE_CAP_RATIO-0.01)continue;
       const sig=sellSignal(h);
-      let taxPen=0, gStep=0;
-      if(isTaxable(h)){
-        const ev=evalManwon(h), g=gainOf(h);
-        gStep = ev>0 ? g*(STEP/ev) : 0;
-        const before=Math.max(0,usGainCum-DEDUCT)*RATE;
-        const after=Math.max(0,usGainCum+gStep-DEDUCT)*RATE;
-        taxPen=((after-before)/STEP)*10; // 공제 넘는 차익에만 발생 → 한계세율 반영
-      }
-      // 변동성 쏠림 누진 페널티: 이번 금액의 20% 넘으면 베타 비례로 가중 (한 종목 몰빵 억제)
-      const over=Math.max(0, sold[h.n]-AMT*SOFT_RATIO)/Math.max(1,AMT*SOFT_RATIO);
-      const volPen=bn*over*3.0;
-      const net=sig - taxPen - volPen;
-      if(net>bestNet){bestNet=net; best=h; bestInfo={gStep,sig};}
+      if(sig>bestSig){bestSig=sig; best=h;}
     }
-    return best?{h:best,info:bestInfo}:null;
+    return best;
   }
 
   const steps=Math.round(AMT/STEP);
   let placed=0;
   for(let s=0;s<steps;s++){
-    const pk=pickStep(); if(!pk)break;
-    sold[pk.h.n]+=STEP; placed+=STEP;
-    if(isTaxable(pk.h))usGainCum+=pk.info.gStep;
+    const h=pickStep(); if(!h)break;
+    sold[h.n]+=STEP; placed+=STEP;
+    if(isTaxable(h)){const ev=evalManwon(h),g=gainOf(h); usGainCum+=ev>0?g*(STEP/ev):0;}
   }
 
-  // 결과 정리: 매도신호 높은 순
+  // 결과 정리: 매도우선도 높은 순
   const items=Object.keys(sold).filter(n=>sold[n]>=STEP-0.01)
     .map(n=>{const h=cands.find(x=>x.n===n);return{h,amt:sold[n],sig:sellSignal(h),beta:h.beta};})
     .sort((a,b)=>b.sig-a.sig);
@@ -452,7 +470,7 @@ function renderPlans(scored){
     const qt=qtyTotal(h);
     const sh=qt*(it.amt/ev);
     const taxable=isTaxable(h)?(gainOf(h)>0?'차익':'손실상계'):'비과세';
-    const volTag=betaNorm(it.beta)>0.5?'고변동(분산)':'';
+    const volTag=betaNorm(it.beta)>0.6?'고변동':'';
     const tag=(it.amt>=ev-0.5?'전량':'부분 '+(qt<1?sh.toFixed(3):Math.round(sh))+'/'+qt+'주');
     html+=planLine(h,it.amt,cum,it.sig,tag,taxable+(volTag?', '+volTag:''));
   }
