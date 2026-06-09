@@ -67,36 +67,47 @@ async function fetchKR(code) {
   );
   const o = price.output || {};
 
-  // 2) 재무비율: ROE·부채비율·매출성장·영익성장·EPS·BPS (최근 결산 1건 사용)
+  // 2) 재무비율: ROE·부채비율·EPS·BPS — 0(년) 기준, output[0]=최근 연간
   let fr = {};
   try {
     const r = await kisGet(
       '/uapi/domestic-stock/v1/finance/financial-ratio',
-      { FID_DIV_CLS_CODE: '1', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code }, // 1=연간
+      { fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code }, // 0=년
       'FHKST66430300'
     );
     fr = (r.output && r.output[0]) ? r.output[0] : {};
   } catch (e) {}
 
-  // 3) 손익계산서: 매출·영업이익 → 영업이익률·PSR 직접 계산 (비율 API가 빌 때 더 확실)
-  let inc = {};
+  // 3) 성장성비율: 매출성장·영익성장 — 0(년) 기준
+  let gr = {};
+  try {
+    const g = await kisGet(
+      '/uapi/domestic-stock/v1/finance/growth-ratio',
+      { fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code },
+      'FHKST66430800'
+    );
+    gr = (g.output && g.output[0]) ? g.output[0] : {};
+  } catch (e) {}
+
+  // 4) 손익계산서: 0(년) 호출 후 stac_yymm이 '12'로 끝나는(연간 전체) 최근 행 선택
+  let incRows = [];
   try {
     const ic = await kisGet(
       '/uapi/domestic-stock/v1/finance/income-statement',
-      { FID_DIV_CLS_CODE: '1', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code },
+      { fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code },
       'FHKST66430200'
     );
-    inc = (ic.output && ic.output[0]) ? ic.output[0] : {};
+    incRows = Array.isArray(ic.output) ? ic.output : [];
   } catch (e) {}
+  // 연간 전체(12월 결산) 행만, 가장 최근 것
+  const annual = incRows.find(r => String(r.stac_yymm || '').endsWith('12')) || incRows[0] || {};
+  const sale = num(annual.sale_account);   // 매출액
+  const op = num(annual.bsop_prti);        // 영업이익
+  const mcapUnit = num(o.hts_avls);        // 시가총액(억원)
 
-  // 매출·영업이익 후보 필드 (KIS 표기 흔들림 대비 여러 후보)
-  const sale = num(inc.sale_account) || num(inc.revenue) || num(inc.sale_totl_prfi);
-  const op = num(inc.bsop_prti) || num(inc.bsop_prfi) || num(inc.operating_income);
-  const mcapManwon = num(o.hts_avls); // 시총(억원으로 추정)
   let opMargin = null, psr = null;
-  if (op != null && sale) opMargin = op / sale * 100;
-  // PSR = 시총 / 매출. 단위만 같으면 비율은 정확 (둘 다 억원이라 가정)
-  if (mcapManwon != null && sale) psr = mcapManwon / sale;
+  if (op != null && sale) opMargin = op / sale * 100;          // 영업이익률
+  if (mcapUnit != null && sale) psr = mcapUnit / sale;          // PSR = 시총 ÷ 매출 (둘 다 억원)
 
   return {
     price: num(o.stck_prpr),
@@ -106,23 +117,19 @@ async function fetchKR(code) {
     roe: num(fr.roe_val),
     opMargin: opMargin,
     debtRatio: num(fr.lblt_rate),
-    revGrowth: num(fr.grs),
-    opGrowth: num(fr.bsop_prfi_inrt),
+    revGrowth: num(gr.grs),
+    opGrowth: num(gr.bsop_prfi_inrt),
     lo52: num(o.w52_lwpr),
     hi52: num(o.w52_hgpr),
     beta: null,
     target: null,
-    mcap: mcapManwon,
+    mcap: mcapUnit,
     eps: num(o.eps),
     bps: num(o.bps),
     ret3m: null,
     name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
-    _debug: {
-      fr_keys: Object.keys(fr),
-      inc_keys: Object.keys(inc),
-      inc_sample: { sale_account: inc.sale_account, bsop_prti: inc.bsop_prti, bsop_prfi: inc.bsop_prfi },
-    },
+    _period: { fr: fr.stac_yymm, gr: gr.stac_yymm, inc: annual.stac_yymm },
   };
 }
 
