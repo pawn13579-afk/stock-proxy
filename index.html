@@ -45,12 +45,16 @@
   .topll{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .tlh{font-size:11px;margin-bottom:6px;font-weight:600}
   .tlr{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;font-family:'Spline Sans Mono'}
-  .histbox{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .histbox{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
   .histhead{display:flex;justify-content:space-between;align-items:center}
   .histhead h3{margin:0;font-size:15px}
   .histsum{display:flex;flex-wrap:wrap;gap:18px;padding:10px 0;font-size:13px;border-bottom:1px solid var(--line);margin-bottom:10px}
   .histsum b{font-family:'Spline Sans Mono';font-size:15px}
-  .histtbl{width:100%;border-collapse:collapse;font-size:12px}
+  .histtbl{width:100%;min-width:680px;border-collapse:collapse;font-size:12px;table-layout:fixed}
+  .histtbl th,.histtbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .histtbl th:nth-child(1),.histtbl td:nth-child(1){width:90px}
+  .histtbl th:nth-child(9),.histtbl td:nth-child(9){width:36px;text-align:center}
+  .histtbl th:nth-child(8),.histtbl td:nth-child(8){width:64px}
   .histtbl th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px}
   .histtbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
   .histtbl .num{text-align:right;font-family:'Spline Sans Mono'}
