@@ -82,7 +82,7 @@
 <header>
   <h1>SELL DECISION ENGINE <span class="ko">v2 · 부부 포트폴리오 매도 도구</span></h1>
   <div class="sub">위 <b style="color:var(--seedtxt)">프록시 주소를 넣고 [🔄 API 자동채우기]</b>를 누르면, 한국·미국 종목의 PER·PBR·PSR·ROE·영업이익률·부채비율·성장률·52주·목표가·3개월수익률·수급(한국)·베타(미국)가 자동으로 채워집니다(KIS·FMP). 비율을 직접 받으므로 계산·입력 불필요.</div>
-  <div class="warnbar">⚠️ ETF·비트코인은 재무지표가 없거나 일부만 채워집니다. 코스닥 소형주는 증권사 목표가가 없으면 ER 축이 빕니다(그 종목은 다른 축으로 평가). 한국주 수급은 장 마감 후 데이터가 더 정확합니다. 차트(20/60일선)는 보고 직접 선택. 빈 축은 점수에서 자동 제외되고 ●로 표시됩니다.</div>
+  <div class="warnbar">⚠️ ETF·비트코인은 재무지표가 없거나 일부만 채워집니다. 코스닥 소형주는 증권사 목표가가 없으면 ER 축이 빕니다(그 종목은 다른 축으로 평가). 한국주 수급은 장 마감 후 데이터가 더 정확합니다. 20/60일선은 현재가 대비 ▲위·▼아래로 자동 판정됩니다. 빈 축은 점수에서 자동 제외되고 ●로 표시됩니다.</div>
 </header>
 <div class="wrap">
   <div class="controls">
@@ -194,8 +194,15 @@ function momScore(h){
   if(h.px!=null&&h.ma60!=null&&h.ma60>0)p.push(h.px>=h.ma60?3.5:7.5);
   return avg(p);
 }
-function rarScore(h){ // 베타 우선, 없으면 52주 변동폭
-  if(HOLD.some(x=>x.beta!=null))return pct(x=>x.beta,+1,h);
+function rarScore(h){ // 위험: 베타 있으면 베타, 없으면(코인·일부ETF) 52주 변동폭으로 — 둘 다 높을수록 매도우선
+  // 베타 보유 종목은 베타 백분위, 미보유 종목은 변동폭 백분위. 같은 "위험" 축이라 혼용.
+  if(h.beta!=null){
+    // 베타 가진 종목들 사이 백분위
+    const vals=HOLD.map(x=>x.beta).filter(x=>x!=null).sort((a,b)=>a-b);
+    if(vals.length<2)return 5.5;
+    const r=vals.filter(v=>v<h.beta).length;return 1+(r/(vals.length-1))*9;
+  }
+  // 베타 없으면 변동폭으로 (전체 종목 변동폭 분포 기준)
   return pct(volRange,+1,h);
 }
 function flowScore(h){if(h.noflow)return null;
@@ -214,6 +221,18 @@ function sellScore(h){
 function rateBadge(r){if(!r)return '';let c=r==='Strong Buy'?'var(--pos)':r==='Buy'?'#4a9ed6':r==='Hold'?'var(--warn)':r==='ETF'?'var(--faint)':'var(--neg)';return '<span class="ratebadge" style="background:'+c+'22;color:'+c+'">'+r+'</span>';}
 function inp(h,i,k,w){return '<input class="cell'+(h[k]!=null&&h._src?' seeded':'')+'" style="width:'+(w||50)+'px" value="'+(h[k]==null?'':(typeof h[k]==='number'?(Math.round(h[k]*100)/100):h[k]))+'" placeholder="-" onchange="upd('+i+',\''+k+'\',this.value)">';}
 function sel(h,i,k){const v=h[k];return '<select class="cell" style="width:48px" onchange="updSel('+i+',\''+k+'\',this.value)"><option value=""'+(v==null?' selected':'')+'>-</option><option value="1"'+(v===1?' selected':'')+'>위</option><option value="0"'+(v===0?' selected':'')+'>아래</option></select>';}
+function maCell(h,k){ // 이평선 가격(숫자)을 받아 현재가 대비 위/아래 자동 표시
+  const ma=h[k];
+  if(ma==null||ma<=0)return '<span style="color:var(--faint);font-size:10px">-</span>';
+  const px=h.px;
+  if(px==null)return '<span style="color:var(--faint);font-size:9px">'+Math.round(ma*100)/100+'</span>';
+  const above=px>=ma;
+  const c=above?'var(--pos)':'var(--neg)';
+  const arrow=above?'▲':'▼';
+  const lbl=above?'위':'아래';
+  // 이평선 값과 위/아래를 함께 (작게)
+  return '<span style="color:'+c+';font-size:10px" title="현재가 '+px+' vs '+k+' '+(Math.round(ma*100)/100)+'">'+arrow+lbl+'<br><span style="font-size:8px;color:var(--faint)">'+(Math.round(ma*100)/100)+'</span></span>';
+}
 function selFlow(h,i,k){if(h.noflow)return '<span style="color:var(--faint);font-size:10px">미국</span>';const v=h[k];return '<select class="cell" style="width:48px" onchange="updSel('+i+',\''+k+'\',this.value)"><option value=""'+(v==null?' selected':'')+'>-</option><option value="1"'+(v===1?' selected':'')+'>매수</option><option value="-1"'+(v===-1?' selected':'')+'>매도</option></select>';}
 function acctStr(h){return h.lots.map(l=>l.acct+' '+(l.qty<1?l.qty.toFixed(3):l.qty)+'주').join(', ');}
 // ===== API 자동 채우기 =====
@@ -223,13 +242,15 @@ async function fillAll(){
   if(!PROXY && location.protocol==='file:'){alert('파일로 열면 프록시 주소가 필요합니다. 같은 Vercel 주소에 올리면 비워도 됩니다.');return;}
   saveData();
   const st=document.getElementById('fillStatus');
-  const targets=HOLD.map((h,i)=>({h,i})).filter(x=>x.h.apiSym);
+  const targets=HOLD.map((h,i)=>({h,i})).filter(x=>x.h.apiSym||x.h.mkt==='COIN');
   let ok=0,fail=0;
   for(let n=0;n<targets.length;n++){
     const {h,i}=targets[n];
     st.textContent='불러오는 중… '+(n+1)+'/'+targets.length+' ('+h.n+')';
     try{
-      const mk=h.mkt==='US'?('market=US&ticker='+h.apiSym):('market=KR&code='+h.apiSym);
+      const mk=h.mkt==='US'?('market=US&ticker='+h.apiSym)
+             :h.mkt==='COIN'?('market=COIN&ticker='+(h.apiSym||'BTC'))
+             :('market=KR&code='+h.apiSym);
       const r=await fetch((PROXY||'')+'/api/stock?'+mk);
       const d=await r.json();
       if(d&&!d.error){
@@ -271,8 +292,8 @@ function render(){
       '<td>'+inp(h,i,'lo52',56)+'</td>'+
       '<td>'+inp(h,i,'hi52',56)+'</td>'+
       '<td>'+inp(h,i,'ret3m',46)+'</td>'+
-      '<td>'+sel(h,i,'ma20')+'</td>'+
-      '<td>'+sel(h,i,'ma60')+'</td>'+
+      '<td>'+maCell(h,'ma20')+'</td>'+
+      '<td>'+maCell(h,'ma60')+'</td>'+
       '<td>'+selFlow(h,i,'frn')+'</td>'+
       '<td>'+selFlow(h,i,'inst')+'</td>'+
       '<td class="num '+(er!=null?(er>=0?'pos':'neg'):'')+'">'+(er!=null?(er>0?'+':'')+er.toFixed(0):'—')+'</td>'+
