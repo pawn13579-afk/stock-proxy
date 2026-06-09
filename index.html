@@ -87,9 +87,8 @@
 <div class="wrap">
   <div class="controls">
     <div class="ctl"><label>환율 USD/KRW</label><input id="fx" class="num" value="1559"></div>
-    <div class="ctl"><label>1차(만원)</label><input id="t1" class="num" value="400"></div>
-    <div class="ctl"><label>2차(만원)</label><input id="t2" class="num" value="300"></div>
-    <div class="ctl"><label>3차(만원)</label><input id="t3" class="num" value="400"></div>
+    <div class="ctl"><label>이번에 팔 금액(만원)</label><input id="tAmt" class="num" value="400"></div>
+    <div class="ctl"><label>올해 기실현 미국주차익(만원)</label><input id="usGainYTD" class="num" value="0" title="올해 이미 매도해 실현한 미국주 양도차익. 250만 공제 잔여 계산용. 없으면 0"></div>
     <div class="ctl" style="flex:1;min-width:300px"><label>Vercel 프록시 주소</label><input id="proxyUrl" style="width:100%" placeholder="(같은 주소에 올렸으면 비워두세요)"></div>
     <button onclick="fillAll()" style="background:var(--pos)">🔄 API 자동채우기</button>
     <span id="fillStatus" style="font-size:12px;color:var(--dim)"></span>
@@ -326,20 +325,112 @@ function renderSummary(){
     '<div class="card"><div class="k">암호화폐</div><div class="v num">'+coin.toFixed(0)+'만</div></div>'+
     '<div class="card"><div class="k">완전/일부(●)</div><div class="v num"><span style="color:var(--pos)">'+full+'</span>/<span style="color:var(--warn)">'+partial+'</span> <span style="font-size:11px;color:var(--faint)">/'+HOLD.length+'</span></div></div>';
 }
-function planLine(h,amt,sum,score,partial,tag){return '<div class="planrow"><span class="nm">'+h.n+' <span style="color:var(--faint);font-weight:400">(점수 '+(partial?'●':'')+score.toFixed(1)+(tag?', '+tag:'')+')</span></span><span class="amt">'+amt.toFixed(0)+'만 · 누계 '+sum.toFixed(0)+'만</span></div>';}
-let prevH=null,prevScore=0,prevPartial=false;
+function planLine(h,amt,cum,sig,tag,extra){return '<div class="planrow"><span class="nm">'+h.n+' <span style="color:var(--faint);font-weight:400">(매도신호 '+sig.toFixed(1)+(tag?', '+tag:'')+(extra?', '+extra:'')+')</span></span><span class="amt">'+amt.toFixed(0)+'만 · 누계 '+cum.toFixed(0)+'만</span></div>';}
+
+// ===== 매도 모델: 세후 기대효용 최대화 =====
+// 철학: 매도는 "기대수익 낮은 것을 빼되, 세금은 거래비용으로 차감하고, 한 종목·한 시점 쏠림은 리스크비용으로 차감"
+// → 종목 점수 정렬이 아니라, 1100만을 어디서 빼면 세후로 가장 이득인지를 단위씩 최적화.
+
+// 기대수익 신호: 낮을수록 팔아야(높은 신호). ER·VAL·GROWTH·PROFIT·MOM만 통합(집중도·세금·수급 제외 — 그건 비용/제약이지 기대수익 아님)
+function sellSignal(h){
+  const r=sellScore(h); if(!r||!r.parts)return null;
+  const p=r.parts, keys=['ER','VAL','GROWTH','PROFIT','MOM'];
+  const v=keys.map(k=>p[k]).filter(x=>x!=null);
+  return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
+}
+// 종목 평가차익(만원): 평가 × (1 - 1/(1+수익률))
+function gainOf(h){
+  const ev=evalManwon(h), r=(h.ret||0)/100;
+  if(r<=-1)return -ev;
+  return ev - ev/(1+r);
+}
+// 미국주만 양도세 대상(연 250만 공제 후 22%). 한국주·코인=0
+function isTaxable(h){return h.mkt==='US';}
+
 function renderPlans(scored){
-  const targets=[{label:'1차',v:parseFloat(document.getElementById('t1').value)||0},{label:'2차',v:parseFloat(document.getElementById('t2').value)||0},{label:'3차',v:parseFloat(document.getElementById('t3').value)||0}];
-  const ready=scored.filter(r=>r.score!=null);
+  const AMT=parseFloat(document.getElementById('tAmt').value)||0;       // 이번에 팔 금액
+  const usYTD=parseFloat(document.getElementById('usGainYTD').value)||0; // 올해 이미 실현한 미국주 차익
+  const DEDUCT=250, RATE=0.22, STEP=5;
+
+  const cands=HOLD.filter(h=>sellSignal(h)!=null);
   const allFilled=HOLD.every(h=>{const r=sellScore(h);return r.score!=null&&!r.partial;});
-  let html='<h3>매도 실행 플랜 (매도점수 높은 순, 분할매도 반영)</h3>';
-  if(!allFilled)html+='<div class="pn" style="color:var(--warn)">⚠️ 데이터가 빈 종목은 점수에 ●(일부축)가 붙고 잠정입니다. [API 자동채우기]로 채우면 정확해집니다. ⚑=이벤트.</div>';
-  else html+='<div class="pn" style="color:var(--pos)">✅ 전 종목 데이터 완비.</div>';
-  let idx=0,leftover=0;
-  for(const t of targets){if(t.v<=0)continue;html+='<div style="margin-top:14px;font-weight:700;color:var(--accent)">'+t.label+' 목표 '+t.v+'만원</div>';let sum=0,any=false;
-    if(leftover>0){const need=t.v-sum;if(leftover<=need){sum+=leftover;html+=planLine(prevH,leftover,sum,prevScore,prevPartial,'잔여전량');leftover=0;idx++;any=true;}else{sum+=need;leftover-=need;html+=planLine(prevH,need,sum,prevScore,prevPartial,'부분');any=true;}}
-    while(idx<ready.length&&sum<t.v){const r=ready[idx],amt=evalManwon(r.h),need=t.v-sum;if(amt<=need){sum+=amt;idx++;any=true;html+=planLine(r.h,amt,sum,r.score,r.partial,'전량');}else{sum+=need;leftover=amt-need;prevH=r.h;prevScore=r.score;prevPartial=r.partial;any=true;const sh=r.h.qtyTotal*(need/amt);html+=planLine(r.h,need,sum,r.score,r.partial,'부분('+(r.h.qtyTotal<1?sh.toFixed(3):Math.round(sh))+'/'+r.h.qtyTotal+'주)');break;}}
-    if(!any)html+='<div class="planrow"><span class="empty">남은 종목 없음</span></div>';}
+  let html='<h3>이번 매도 플랜 ('+AMT+'만원 · 세후 기대효용 최대화)</h3>';
+  html+='<div class="pn">이번 1회분만 계산합니다. 다음 회차는 그때 자료를 새로 받아 다시 산출하세요(가격·실적·시장이 바뀌므로). 기대수익 낮은 종목 우선 · 양도세는 거래비용으로 차감(미국주 연 '+DEDUCT+'만 공제후 '+(RATE*100)+'%, 올해 기실현 '+usYTD+'만 반영) · 손실종목 상계 자동 · 변동성 큰 종목 쏠림은 리스크비용 차감</div>';
+  if(!allFilled)html+='<div class="pn" style="color:var(--warn)">⚠️ 데이터 빈 종목은 신호가 잠정입니다. [API 자동채우기]로 채우면 정확해집니다.</div>';
+  if(AMT<STEP){html+='<div class="planrow"><span class="empty">팔 금액을 입력하세요</span></div>';document.getElementById('plans').innerHTML=html;return;}
+
+  const betas=cands.map(h=>h.beta).filter(x=>x!=null);
+  const bmin=betas.length?Math.min(...betas):0, bmax=betas.length?Math.max(...betas):1;
+  const betaNorm=(b)=>(b==null||bmax===bmin)?0:(b-bmin)/(bmax-bmin);
+
+  const sold={}; cands.forEach(h=>sold[h.n]=0);
+  let usGainCum=usYTD;  // 세금 기준점 = 올해 이미 실현한 차익부터 시작
+
+  // 한 STEP을 어느 종목에서 뺄지: net = 매도신호 - 세금페널티 - 변동성쏠림페널티
+  // 세금: 공제(250만) 초과분에만 22% 한계세율 → 공제 안이면 페널티 0 (이미 그렇게 계산)
+  // 변동성 쏠림: 베타 큰 종목은 이번 금액의 35%를 하드상한(그 이상 못 뽑음) + 그 전에도 누진 페널티
+  const VOL_CAP_RATIO=0.35;   // 고변동 종목 한 종목 상한 (이번 금액 대비)
+  const SOFT_RATIO=0.20;      // 이 비율 넘으면 페널티 누진 시작
+  function pickStep(){
+    let best=null, bestNet=-1e9, bestInfo=null;
+    for(const h of cands){
+      const remain=evalManwon(h)-sold[h.n];
+      if(remain<STEP-0.01)continue;
+      const bn=betaNorm(h.beta); // 0~1, 베타 클수록 1
+      // 변동성 큰 종목 하드 상한: 베타 정규화>0.5면 이번 금액의 35%까지만
+      if(bn>0.5 && sold[h.n]>=AMT*VOL_CAP_RATIO-0.01)continue;
+      const sig=sellSignal(h);
+      let taxPen=0, gStep=0;
+      if(isTaxable(h)){
+        const ev=evalManwon(h), g=gainOf(h);
+        gStep = ev>0 ? g*(STEP/ev) : 0;
+        const before=Math.max(0,usGainCum-DEDUCT)*RATE;
+        const after=Math.max(0,usGainCum+gStep-DEDUCT)*RATE;
+        taxPen=((after-before)/STEP)*10; // 공제 넘는 차익에만 발생 → 한계세율 반영
+      }
+      // 변동성 쏠림 누진 페널티: 이번 금액의 20% 넘으면 베타 비례로 가중 (한 종목 몰빵 억제)
+      const over=Math.max(0, sold[h.n]-AMT*SOFT_RATIO)/Math.max(1,AMT*SOFT_RATIO);
+      const volPen=bn*over*3.0;
+      const net=sig - taxPen - volPen;
+      if(net>bestNet){bestNet=net; best=h; bestInfo={gStep,sig};}
+    }
+    return best?{h:best,info:bestInfo}:null;
+  }
+
+  const steps=Math.round(AMT/STEP);
+  let placed=0;
+  for(let s=0;s<steps;s++){
+    const pk=pickStep(); if(!pk)break;
+    sold[pk.h.n]+=STEP; placed+=STEP;
+    if(isTaxable(pk.h))usGainCum+=pk.info.gStep;
+  }
+
+  // 결과 정리: 매도신호 높은 순
+  const items=Object.keys(sold).filter(n=>sold[n]>=STEP-0.01)
+    .map(n=>{const h=cands.find(x=>x.n===n);return{h,amt:sold[n],sig:sellSignal(h),beta:h.beta};})
+    .sort((a,b)=>b.sig-a.sig);
+
+  const thisGain=usGainCum-usYTD; // 이번 회차로 새로 실현된 미국주 차익
+  const taxBefore=Math.max(0,usYTD-DEDUCT)*RATE;
+  const taxAfter=Math.max(0,usGainCum-DEDUCT)*RATE;
+  const thisTax=taxAfter-taxBefore; // 이번 매도로 추가되는 세금
+
+  let cum=0;
+  for(const it of items){
+    cum+=it.amt;
+    const h=it.h, ev=evalManwon(h);
+    const sh=h.qtyTotal*(it.amt/ev);
+    const taxable=isTaxable(h)?(gainOf(h)>0?'차익':'손실상계'):'비과세';
+    const volTag=betaNorm(it.beta)>0.5?'고변동(분산)':'';
+    const tag=(it.amt>=ev-0.5?'전량':'부분 '+(h.qtyTotal<1?sh.toFixed(3):Math.round(sh))+'/'+h.qtyTotal+'주');
+    html+=planLine(h,it.amt,cum,it.sig,tag,taxable+(volTag?', '+volTag:''));
+  }
+  if(placed<AMT-0.5)html+='<div class="planrow" style="color:var(--warn)"><span>매도 가능 종목이 부족해 '+placed.toFixed(0)+'만만 배정됨</span></div>';
+  html+='<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line);font-size:13px">'
+    +'<b>이번 회차 미국주 실현차익</b> '+thisGain.toFixed(0)+'만 (올해 누적 '+usGainCum.toFixed(0)+'만) → '
+    +'<b>이번 추가 양도세</b> '+(thisTax<=0?'<span style="color:var(--pos)">0만 (공제 '+DEDUCT+'만 이내)</span>':'<span style="color:var(--warn)">'+thisTax.toFixed(0)+'만</span>')
+    +' · <b>세후 실수령</b> 약 '+(placed-thisTax).toFixed(0)+'만<br>'
+    +'<span style="color:var(--faint);font-size:11px">실행 후: 판 종목 수량을 줄이고 저장 → 다음 회차 때 자료 새로 받아 다시 계산. 올해 안에 또 팔면 위 \'올해 기실현차익\'에 '+usGainCum.toFixed(0)+'만을 넣으세요.</span></div>';
   document.getElementById('plans').innerHTML=html;
 }
 function renderWeights(){const g=document.getElementById('weights');g.innerHTML='';for(const k in W){g.innerHTML+='<div class="wrow"><span>'+k+'</span><input value="'+W[k]+'" onchange="W[\''+k+'\']=parseFloat(this.value)||0"></div>';}}
