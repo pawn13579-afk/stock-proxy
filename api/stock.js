@@ -260,10 +260,12 @@ async function getCik(ticker) {
 }
 
 // companyfacts에서 한 개념(여러 후보 태그)의 연간 값들을 최신순으로
-// frame에 의존하지 않고, 10-K이면서 기간이 약 1년(손익) 또는 시점값(재무상태표)인 것을 연간으로 인정
+// 태그가 연도별로 바뀌는 경우(예: NVDA 매출: 2022까지 RevenueFromContract..., 이후 Revenues)를
+// 위해 모든 후보 태그를 합쳐서 처리하고, 같은 회계연도는 최신 filed 우선
 function secAnnual(facts, tags, unit = 'USD', flow = true) {
   const gaap = (facts.facts && facts.facts['us-gaap']) || {};
   const days = (s, e) => (new Date(e) - new Date(s)) / 86400000;
+  const seen = {};
   for (const tag of tags) {
     const u = gaap[tag] && gaap[tag].units && gaap[tag].units[unit];
     if (!u || !u.length) continue;
@@ -275,16 +277,11 @@ function secAnnual(facts, tags, unit = 'USD', flow = true) {
       // 재무상태표(자본·부채): 시점값, 10-K
       pool = u.filter(x => x.form === '10-K' && x.end);
     }
-    if (!pool.length) pool = u.filter(x => x.form === '10-K');
-    if (!pool.length) continue;
-    const seen = {};
     for (const e of pool) {
       if (!seen[e.end] || e.filed > seen[e.end].filed) seen[e.end] = e;
     }
-    const arr = Object.values(seen).sort((a, b) => b.end.localeCompare(a.end));
-    if (arr.length) return arr; // [{val,end,start,...}, ...] 최신순
   }
-  return [];
+  return Object.values(seen).sort((a, b) => b.end.localeCompare(a.end)); // 모든 태그 통합, 최신순
 }
 
 // 두 시계열에서 같은 회계연도(end 근접)끼리 매칭해 값 쌍 반환
