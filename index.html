@@ -137,6 +137,7 @@
     <th title="[API] 52주 최저">52최저</th>
     <th title="[API] 52주 최고">52최고</th>
     <th title="최근 3개월 수익률 %(있으면)">3개월%</th>
+    <th title="[API] 베타(시장민감도). 미국=S&P500, 한국=코스피 대비. 높을수록 변동성 큼">베타</th>
     <th title="현재가 vs 20일선">20일선</th>
     <th title="현재가 vs 60일선">60일선</th>
     <th title="외국인 순매수(국내만)">외인</th>
@@ -215,8 +216,19 @@ function sellScore(h){
   const parts={ER:erScore(h),VAL:valScore(h),GROWTH:growthScore(h),PROFIT:profitScore(h),MOM:momScore(h),CONC:concScore(h),RAR:rarScore(h),FLOW:flowScore(h),TAX:taxScore(h)};
   let ws=0,vs=0,used=0,avail=0;
   for(const k in W){if(k==='FLOW'&&h.noflow)continue;avail++;if(parts[k]==null)continue;ws+=W[k];vs+=W[k]*parts[k];used++;}
-  if(ws===0)return{score:null,partial:true,used:0,avail};
-  return{score:(vs/ws)*10,partial:used<avail,used,avail};
+  if(ws===0)return{score:null,partial:true,used:0,avail,parts};
+  return{score:(vs/ws)*10,partial:used<avail,used,avail,parts};
+}
+// 축별 점수 툴팁 텍스트 (각 축 점수 × 가중치, 기여도 순)
+function scoreTooltip(parts){
+  const names={ER:'기대수익',VAL:'밸류',GROWTH:'성장',PROFIT:'수익성',MOM:'모멘텀',CONC:'집중도',RAR:'위험(베타)',FLOW:'수급',TAX:'세금'};
+  const rows=[];
+  for(const k in W){
+    const v=parts[k];
+    if(v==null){rows.push(names[k]+': - (제외, 가중치'+(W[k]*100).toFixed(0)+'%)');}
+    else{rows.push(names[k]+': '+v.toFixed(1)+'점 ×'+(W[k]*100).toFixed(0)+'% = '+(v*W[k]).toFixed(2));}
+  }
+  return rows.join('\n');
 }
 function rateBadge(r){if(!r)return '';let c=r==='Strong Buy'?'var(--pos)':r==='Buy'?'#4a9ed6':r==='Hold'?'var(--warn)':r==='ETF'?'var(--faint)':'var(--neg)';return '<span class="ratebadge" style="background:'+c+'22;color:'+c+'">'+r+'</span>';}
 function inp(h,i,k,w){return '<input class="cell'+(h[k]!=null&&h._src?' seeded':'')+'" style="width:'+(w||50)+'px" value="'+(h[k]==null?'':(typeof h[k]==='number'?(Math.round(h[k]*100)/100):h[k]))+'" placeholder="-" onchange="upd('+i+',\''+k+'\',this.value)">';}
@@ -292,13 +304,14 @@ function render(){
       '<td>'+inp(h,i,'lo52',56)+'</td>'+
       '<td>'+inp(h,i,'hi52',56)+'</td>'+
       '<td>'+inp(h,i,'ret3m',46)+'</td>'+
+      '<td>'+inp(h,i,'beta',44)+'</td>'+
       '<td>'+maCell(h,'ma20')+'</td>'+
       '<td>'+maCell(h,'ma60')+'</td>'+
       '<td>'+selFlow(h,i,'frn')+'</td>'+
       '<td>'+selFlow(h,i,'inst')+'</td>'+
       '<td class="num '+(er!=null?(er>=0?'pos':'neg'):'')+'">'+(er!=null?(er>0?'+':'')+er.toFixed(0):'—')+'</td>'+
       '<td class="num" style="color:var(--faint)">'+(ps!=null?(ps*100).toFixed(0)+'%':'—')+'</td>'+
-      '<td><span class="score" style="background:'+scC+'22;color:'+scC+'">'+(sc!=null?(row.partial?'●':'')+sc.toFixed(1):'-')+'</span></td>';
+      '<td><span class="score" style="background:'+scC+'22;color:'+scC+'" title="'+(sc!=null?scoreTooltip(row.parts).replace(/"/g,'&quot;'):'')+'">'+(sc!=null?(row.partial?'●':'')+sc.toFixed(1):'-')+'</span></td>';
     tb.appendChild(tr);
   });
   renderSummary();renderPlans(scored);
