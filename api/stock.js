@@ -155,6 +155,30 @@ async function fetchKR(code) {
     if (goals.length) target = Math.round(goals.reduce((a, b) => a + b, 0) / goals.length);
   } catch (e) {}
 
+  // 6) 3개월 수익률: 기간별시세(일봉)에서 ~3개월 전 종가 대비 현재가
+  let ret3m = null;
+  try {
+    await sleep(150);
+    const today = new Date();
+    const d2 = today.toISOString().slice(0, 10).replace(/-/g, '');
+    const past = new Date(today.getTime() - 1000 * 60 * 60 * 24 * 95); // 약 3개월 + 여유
+    const d1 = past.toISOString().slice(0, 10).replace(/-/g, '');
+    const chart = await kisGet(
+      '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+      { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: code,
+        FID_INPUT_DATE_1: d1, FID_INPUT_DATE_2: d2,
+        FID_PERIOD_DIV_CODE: 'D', FID_ORG_ADJ_PRC: '0' },
+      'FHKST03010100'
+    );
+    const series = Array.isArray(chart.output2) ? chart.output2 : [];
+    const closes = series.map(r => num(r.stck_clpr)).filter(v => v && v > 0);
+    const nowPx = num(o.stck_prpr);
+    if (closes.length && nowPx) {
+      const oldPx = closes[closes.length - 1]; // 가장 오래된(=약 3개월 전) 종가
+      ret3m = (nowPx / oldPx - 1) * 100;
+    }
+  } catch (e) {}
+
   return {
     price: num(o.stck_prpr),
     per: num(o.per),
@@ -172,7 +196,7 @@ async function fetchKR(code) {
     mcap: mcapUnit,
     eps: num(o.eps),
     bps: num(o.bps),
-    ret3m: null,
+    ret3m: ret3m,
     name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
     _period: { fr: fr.stac_yymm, gr: gr.stac_yymm, inc: annual.stac_yymm },
@@ -207,6 +231,22 @@ async function fetchUS(ticker) {
     target = num(T.targetConsensus) || num(T.targetMedian) || num(T.targetHigh);
   } catch (e) {}
 
+  // 4) profile: 베타
+  let beta = null;
+  try {
+    const p = await (await fetch(`${base}/profile?symbol=${ticker}&apikey=${key}`)).json();
+    const P = Array.isArray(p) && p[0] ? p[0] : (p && p.symbol ? p : {});
+    beta = num(P.beta);
+  } catch (e) {}
+
+  // 5) stock-price-change: 3개월 수익률(%)
+  let ret3m = null;
+  try {
+    const c = await (await fetch(`${base}/stock-price-change?symbol=${ticker}&apikey=${key}`)).json();
+    const C = Array.isArray(c) && c[0] ? c[0] : (c && c.symbol ? c : {});
+    ret3m = num(C['3M']);
+  } catch (e) {}
+
   return {
     price: num(Q.price),
     per: num(R.priceToEarningsRatioTTM) || num(Q.pe) || num(Q.priceEarningsRatio),
@@ -221,12 +261,12 @@ async function fetchUS(ticker) {
     opGrowth: null,
     lo52: num(Q.yearLow),
     hi52: num(Q.yearHigh),
-    beta: null,
+    beta: beta,
     target: target,
     mcap: num(Q.marketCap),
     eps: num(R.netIncomePerShareTTM),
     bps: num(R.bookValuePerShareTTM),
-    ret3m: null,
+    ret3m: ret3m,
     name: Q.name || ticker,
     _raw_market: 'US',
   };
