@@ -25,6 +25,26 @@
   button:hover{filter:brightness(1.1)}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
   .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+  .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px}
+  .chcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .chcard.wide{grid-column:span 2}
+  .cht{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+  .chcard svg{display:block;margin:0 auto}
+  .chlg{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:10px;font-size:10.5px;color:var(--dim)}
+  .chlg span{display:flex;align-items:center;gap:4px}
+  .chlg i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .hbars{display:flex;flex-direction:column;gap:6px}
+  .hbar{display:flex;align-items:center;gap:8px;font-size:11px}
+  .hbl{width:88px;color:var(--dim);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hbt{flex:1;height:14px;background:var(--panel2);border-radius:3px;overflow:hidden}
+  .hbf{display:block;height:100%;background:linear-gradient(90deg,#4aa3c8,#6a6ae8);border-radius:3px}
+  .hbv{width:42px;font-family:'Spline Sans Mono';color:var(--fg);text-align:right}
+  .ratiobar{display:flex;height:26px;border-radius:5px;overflow:hidden;margin-bottom:12px;font-size:11px;font-family:'Spline Sans Mono'}
+  .rwin{background:rgba(123,200,108,.3);color:var(--pos);display:flex;align-items:center;padding:0 8px;white-space:nowrap}
+  .rloss{background:rgba(232,97,90,.3);color:var(--neg);display:flex;align-items:center;justify-content:flex-end;padding:0 8px;white-space:nowrap}
+  .topll{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .tlh{font-size:11px;margin-bottom:6px;font-weight:600}
+  .tlr{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;font-family:'Spline Sans Mono'}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
   .card .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
   .card .v{font-family:'Spline Sans Mono';font-size:20px;font-weight:600;margin-top:4px}
@@ -112,7 +132,7 @@
     <span style="font-size:11px;color:var(--faint)">추가 후 [API 자동채우기]를 누르면 재무가 채워집니다</span>
   </div>
   </div>
-  <div class="summary" id="summary"></div>
+  <div id="summary"></div>
   <div class="legend">
     <span><span class="dot" style="background:var(--seed)"></span>파란칸=검색/계좌 확보</span>
     <span><span class="dot" style="background:#0c1219;border:1px solid var(--line)"></span>빈칸=본인 입력</span>
@@ -430,27 +450,93 @@ function render(){
   });
   renderSummary();renderPlans(scored);
 }
+// 도넛 차트 SVG 생성 (data: [{label,value,color}])
+function donutSVG(data,size,cx,cy,r,rin){
+  const total=data.reduce((s,d)=>s+d.value,0)||1;
+  let ang=-Math.PI/2; // 12시 시작
+  let paths='';
+  data.forEach(d=>{
+    const frac=d.value/total, a2=ang+frac*Math.PI*2;
+    const x1=cx+r*Math.cos(ang),y1=cy+r*Math.sin(ang);
+    const x2=cx+r*Math.cos(a2),y2=cy+r*Math.sin(a2);
+    const xi2=cx+rin*Math.cos(a2),yi2=cy+rin*Math.sin(a2);
+    const xi1=cx+rin*Math.cos(ang),yi1=cy+rin*Math.sin(ang);
+    const large=frac>0.5?1:0;
+    paths+='<path d="M'+x1+' '+y1+' A'+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' L'+xi2+' '+yi2+' A'+rin+' '+rin+' 0 '+large+' 0 '+xi1+' '+yi1+' Z" fill="'+d.color+'"><title>'+d.label+' '+(frac*100).toFixed(1)+'%</title></path>';
+    ang=a2;
+  });
+  return '<svg viewBox="0 0 '+size+' '+size+'" width="'+size+'" height="'+size+'">'+paths+'</svg>';
+}
+const PALETTE=['#e8615a','#e8964a','#e8c84a','#7bc86c','#4aa3c8','#6a6ae8','#a86ae8','#e86ab0','#888','#bbb','#5a8','#c86'];
+function legendHTML(data){
+  const total=data.reduce((s,d)=>s+d.value,0)||1;
+  return '<div class="chlg">'+data.map(d=>'<span><i style="background:'+d.color+'"></i>'+d.label+' '+(d.value/total*100).toFixed(0)+'%</span>').join('')+'</div>';
+}
+
 function renderSummary(){
   const tot=totalEval();
   const us=HOLD.filter(h=>h.mkt==='US').reduce((s,h)=>s+evalManwon(h),0);
   const kr=HOLD.filter(h=>h.mkt==='KR').reduce((s,h)=>s+evalManwon(h),0);
   const coin=HOLD.filter(h=>h.mkt==='COIN').reduce((s,h)=>s+evalManwon(h),0);
-  // 손익: 평가 - 원금(만원)
   const totCost=HOLD.reduce((s,h)=>{const c=costTotal(h);return s+(h.mkt==='US'?c*fx()/10000:c/10000);},0);
   const totGain=tot-totCost;
   const totRet=totCost>0?(totGain/totCost*100):0;
-  // 미실현 차익(미국주만, 양도세 대상)
   const usGain=HOLD.filter(h=>h.mkt==='US').reduce((s,h)=>s+gainManwon(h),0);
-  // 섹터별 비중 (상위 3개)
-  const secMap={}; HOLD.forEach(h=>{const s=sectorOf(h);secMap[s]=(secMap[s]||0)+evalManwon(h);});
-  const topSec=Object.entries(secMap).sort((a,b)=>b[1]-a[1]).slice(0,3)
-    .map(([s,v])=>s+' '+(v/tot*100).toFixed(0)+'%').join(' · ');
   const gc=totGain>=0?'var(--pos)':'var(--neg)';
-  document.getElementById('summary').innerHTML=
-    '<div class="card"><div class="k">총 평가액</div><div class="v num">'+(tot/10000).toFixed(2)+'억</div><div class="ks">미국 '+(us/10000).toFixed(1)+'억 · 국내 '+(kr/10000).toFixed(1)+'억 · 코인 '+coin.toFixed(0)+'만</div></div>'+
-    '<div class="card"><div class="k">총 평가손익</div><div class="v num" style="color:'+gc+'">'+(totGain>=0?'+':'')+(totGain/10000).toFixed(2)+'억</div><div class="ks" style="color:'+gc+'">'+(totRet>=0?'+':'')+totRet.toFixed(1)+'% (원금 '+(totCost/10000).toFixed(2)+'억)</div></div>'+
-    '<div class="card"><div class="k">미국주 미실현차익</div><div class="v num">'+usGain.toFixed(0)+'만</div><div class="ks">양도세 대상 · 연 250만 공제</div></div>'+
-    '<div class="card"><div class="k">섹터 집중 (상위3)</div><div class="v" style="font-size:14px;line-height:1.5">'+topSec+'</div></div>';
+
+  // === 숫자 현황 (원금·평가·손익) ===
+  let html='<div class="summary">'+
+    '<div class="card"><div class="k">총 매수액(원금)</div><div class="v num">'+(totCost/10000).toFixed(2)+'억</div><div class="ks">내가 투입한 돈</div></div>'+
+    '<div class="card"><div class="k">총 평가액</div><div class="v num">'+(tot/10000).toFixed(2)+'억</div><div class="ks">미국 '+(us/10000).toFixed(1)+'억·국내 '+(kr/10000).toFixed(1)+'억·코인 '+coin.toFixed(0)+'만</div></div>'+
+    '<div class="card"><div class="k">총 평가손익 (미실현)</div><div class="v num" style="color:'+gc+'">'+(totGain>=0?'+':'')+(totGain/10000).toFixed(2)+'억</div><div class="ks" style="color:'+gc+'">'+(totRet>=0?'+':'')+totRet.toFixed(1)+'%</div></div>'+
+    '<div class="card"><div class="k">실현손익 (누적)</div><div class="v num" style="color:var(--faint)">0만</div><div class="ks">매도 이력 기능 추가 시 자동 집계</div></div>'+
+    '<div class="card"><div class="k">미국주 미실현차익</div><div class="v num">'+usGain.toFixed(0)+'만</div><div class="ks">양도세 대상·연250만 공제</div></div>'+
+    '</div>';
+
+  // === 차트 영역 ===
+  // 섹터 비중
+  const secMap={}; HOLD.forEach(h=>{const s=sectorOf(h);secMap[s]=(secMap[s]||0)+evalManwon(h);});
+  const secData=Object.entries(secMap).sort((a,b)=>b[1]-a[1]).map(([s,v],i)=>({label:s,value:v,color:PALETTE[i%PALETTE.length]}));
+  // 시장 비중
+  const mktData=[{label:'미국',value:us,color:'#4aa3c8'},{label:'한국',value:kr,color:'#e8615a'},{label:'코인',value:coin,color:'#e8c84a'}].filter(d=>d.value>0);
+  // 종목별 비중 (상위 10)
+  const stkSorted=[...HOLD].sort((a,b)=>evalManwon(b)-evalManwon(a));
+  const top10=stkSorted.slice(0,10);
+  const maxEval=evalManwon(top10[0])||1;
+  // 손익 종목
+  const withGain=HOLD.map(h=>({n:h.n,g:gainManwon(h),ret:retPct(h)})).filter(x=>x.g!=null);
+  const winners=withGain.filter(x=>x.g>0).sort((a,b)=>b.g-a.g);
+  const losers=withGain.filter(x=>x.g<0).sort((a,b)=>a.g-b.g);
+  const winSum=winners.reduce((s,x)=>s+x.g,0), lossSum=losers.reduce((s,x)=>s+x.g,0);
+  // 계좌별
+  const acctMap={}; HOLD.forEach(h=>{const p=price(h);if(p==null)return;h.lots.forEach(l=>{if(l.qty){const v=(h.mkt==='US'?p*l.qty*fx()/10000:p*l.qty/10000);acctMap[l.acct||'기타']=(acctMap[l.acct||'기타']||0)+v;}});});
+  const acctData=Object.entries(acctMap).sort((a,b)=>b[1]-a[1]);
+
+  html+='<div class="charts">';
+  // 섹터 도넛
+  html+='<div class="chcard"><div class="cht">섹터 비중</div>'+donutSVG(secData,120,60,60,55,32)+legendHTML(secData)+'</div>';
+  // 시장 도넛
+  html+='<div class="chcard"><div class="cht">시장 비중</div>'+donutSVG(mktData,120,60,60,55,32)+legendHTML(mktData)+'</div>';
+  // 계좌별 도넛
+  if(acctData.length){const ad=acctData.map(([a,v],i)=>({label:a,value:v,color:PALETTE[i%PALETTE.length]}));
+    html+='<div class="chcard"><div class="cht">계좌별 비중</div>'+donutSVG(ad,120,60,60,55,32)+legendHTML(ad)+'</div>';}
+  // 종목별 비중 막대
+  html+='<div class="chcard wide"><div class="cht">종목별 비중 (상위 10)</div><div class="hbars">';
+  top10.forEach(h=>{const ev=evalManwon(h),pc=ev/tot*100;
+    html+='<div class="hbar"><span class="hbl">'+h.n+'</span><span class="hbt"><span class="hbf" style="width:'+(ev/maxEval*100)+'%"></span></span><span class="hbv">'+pc.toFixed(1)+'%</span></div>';});
+  html+='</div></div>';
+  // 손익 분포
+  html+='<div class="chcard wide"><div class="cht">손익 분포 ('+winners.length+'개 수익 / '+losers.length+'개 손실)</div>';
+  html+='<div class="ratiobar"><span class="rwin" style="width:'+(winSum/(winSum-lossSum||1)*100)+'%">+'+winSum.toFixed(0)+'만</span><span class="rloss" style="width:'+(-lossSum/(winSum-lossSum||1)*100)+'%">'+lossSum.toFixed(0)+'만</span></div>';
+  // TOP 수익/손실
+  html+='<div class="topll"><div><div class="tlh" style="color:var(--pos)">▲ TOP 수익</div>'+
+    winners.slice(0,3).map(x=>'<div class="tlr"><span>'+x.n+'</span><span style="color:var(--pos)">+'+x.g.toFixed(0)+'만 ('+(x.ret>0?'+':'')+x.ret.toFixed(0)+'%)</span></div>').join('')+'</div>'+
+    '<div><div class="tlh" style="color:var(--neg)">▼ TOP 손실</div>'+
+    (losers.length?losers.slice(0,3).map(x=>'<div class="tlr"><span>'+x.n+'</span><span style="color:var(--neg)">'+x.g.toFixed(0)+'만 ('+x.ret.toFixed(0)+'%)</span></div>').join(''):'<div class="tlr"><span style="color:var(--faint)">손실 종목 없음</span></div>')+'</div></div>';
+  html+='</div>';
+  html+='</div>';
+
+  document.getElementById('summary').innerHTML=html;
 }
 function planLine(h,amt,cum,sig,tag,extra){return '<div class="planrow"><span class="nm">'+h.n+' <span style="color:var(--faint);font-weight:400">(매도신호 '+sig.toFixed(1)+(tag?', '+tag:'')+(extra?', '+extra:'')+')</span></span><span class="amt">'+amt.toFixed(0)+'만 · 누계 '+cum.toFixed(0)+'만</span></div>';}
 
