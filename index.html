@@ -50,13 +50,16 @@
   .histhead h3{margin:0;font-size:15px}
   .histsum{display:flex;flex-wrap:wrap;gap:18px;padding:10px 0;font-size:13px;border-bottom:1px solid var(--line);margin-bottom:10px}
   .histsum b{font-family:'Spline Sans Mono';font-size:15px}
-  .histtbl{width:100%;min-width:720px;border-collapse:collapse;font-size:12px}
-  .histtbl th,.histtbl td{white-space:nowrap}
-  .histtbl th:nth-child(9),.histtbl td:nth-child(9){text-align:center}
-  .histtbl th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px}
-  .histtbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
+  .histtbl{width:100%;min-width:720px;border-collapse:collapse;font-size:12px;table-layout:fixed}
+  .histtbl th,.histtbl td{white-space:nowrap;text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis}
+  .histtbl col.cdate{width:11%} .histtbl col.cname{width:12%} .histtbl col.cacct{width:13%}
+  .histtbl col.cqty{width:9%} .histtbl col.cprice{width:12%} .histtbl col.cavg{width:12%}
+  .histtbl col.cgain{width:13%} .histtbl col.ctax{width:12%} .histtbl col.cdel{width:6%}
   .histtbl .num{text-align:right;font-family:'Spline Sans Mono'}
   .histtbl th.num{text-align:right}
+  .histtbl .cdel,.histtbl th.cdelh{text-align:center}
+  .histtbl th{color:var(--dim);font-weight:500;border-bottom:1px solid var(--line);font-size:11px}
+  .histtbl td{border-bottom:1px solid var(--panel2)}
   tr.toprank{background:rgba(232,97,90,.07)}
   tr.toprank .rank{color:var(--neg);font-weight:700}
   .detailrow td{background:var(--panel2);padding:0}
@@ -676,13 +679,13 @@ function renderHistory(){
     '<span>실현손익 <b style="color:'+(real>=0?'var(--pos)':'var(--neg)')+'">'+(real>=0?'+':'')+real.toFixed(0)+'만</b></span>'+
     '<span>올해 미국주 실현차익 <b>'+usYr.toFixed(0)+'만</b> <span style="color:var(--faint);font-size:10px">(250만 공제, 잔여 '+Math.max(0,250-usYr).toFixed(0)+'만)</span></span>'+
     '</div>';
-  html+='<table class="histtbl"><thead><tr><th>날짜</th><th>종목</th><th>계좌</th><th class="num">주수</th><th class="num">체결가</th><th class="num">매입가</th><th class="num">실현손익</th><th>세금</th><th></th></tr></thead><tbody>';
+  html+='<table class="histtbl"><colgroup><col class="cdate"><col class="cname"><col class="cacct"><col class="cqty"><col class="cprice"><col class="cavg"><col class="cgain"><col class="ctax"><col class="cdel"></colgroup><thead><tr><th>날짜</th><th>종목</th><th>계좌</th><th class="num">주수</th><th class="num">체결가</th><th class="num">매입가</th><th class="num">실현손익</th><th>세금</th><th class="cdelh"></th></tr></thead><tbody>';
   [...SOLD].reverse().forEach((r,ri)=>{
     const realIdx=SOLD.length-1-ri;
     html+='<tr><td>'+r.date+'</td><td>'+r.n+'</td><td>'+(r.acct||'')+'</td><td class="num">'+r.qty+'</td><td class="num">'+r.price+'</td><td class="num">'+(r.avg!=null?Math.round(r.avg*100)/100:'-')+'</td>'+
       '<td class="num" style="color:'+(r.gain>=0?'var(--pos)':'var(--neg)')+'">'+(r.gain>=0?'+':'')+r.gain.toFixed(0)+'만</td>'+
       '<td style="font-size:10px;color:var(--faint)">'+(r.taxable?'양도세대상':'비과세')+'</td>'+
-      '<td><span class="del" onclick="delSold('+realIdx+')" title="기록 삭제">×</span></td></tr>';
+      '<td class="cdel"><span class="del" onclick="delSold('+realIdx+')" title="기록 삭제">×</span></td></tr>';
   });
   html+='</tbody></table>';
   el.innerHTML=html;
