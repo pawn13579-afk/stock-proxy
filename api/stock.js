@@ -231,27 +231,13 @@ async function fetchKR(code) {
   try {
     const ySym = await krYahooSymbol(code);
     if (ySym) {
+      if (target == null) await yfGetCrumb(); // 목표가 받을 거면 crumb 미리 확보(경합 방지)
       const [bt, tg] = await Promise.all([
-        yfBeta(ySym, '%5EKS11'),                 // 한국 베타는 코스피지수(^KS11) 대비
+        yfBeta(ySym, '^KS11'),                   // 코스피지수 (yfChartCloses가 내부 인코딩하므로 ^ 그대로)
         target == null ? yfTarget(ySym) : null,  // 목표가가 KIS에 없으면 Yahoo
       ]);
       if (bt != null) { beta = bt; _yfKR = true; }
       if (tg != null && target == null) { target = tg; _yfKR = true; }
-      _yfKRdbg = { ySym, beta: bt, target: tg };
-      if (true) {
-        // 상세 진단: 종목 종가·코스피지수 종가·목표가 원본
-        const stk = await yfChartCloses(ySym, '1y');
-        const ks11a = await yfChartCloses('%5EKS11', '1y');
-        const ks11b = await yfChartCloses('^KS11', '1y');
-        let tgRaw = null;
-        try {
-          await yfGetCrumb();
-          const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ySym}?modules=financialData` + (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
-          const tr = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
-          tgRaw = (await tr.text()).slice(0, 220);
-        } catch (e) { tgRaw = 'ERR:' + String(e); }
-        _yfKRdbg.detail = { stkLen: stk ? stk.length : null, ks11_pct: ks11a ? ks11a.length : null, ks11_caret: ks11b ? ks11b.length : null, tgRaw };
-      }
     } else {
       // 심볼 탐색 실패 진단: .KS / .KQ 각각 종가 개수
       const ks = await yfChartCloses(code + '.KS', '5d');
@@ -286,7 +272,7 @@ async function fetchKR(code) {
     name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
     _src_api: 'KIS' + (_yfKR ? '+YF' : ''),
-    _yfKRdbg: _yfKRdbg,
+    ...(_yfKRdbg ? { _yfKRdbg } : {}),
     _period: { fr: fr.stac_yymm, gr: gr.stac_yymm, inc: annual.stac_yymm },
   };
 }
@@ -325,7 +311,7 @@ async function yfBeta(ticker, mktSym = 'SPY') {
   if (!stock || stock.length < 30) return null;
   if (!_mktReturns[mktSym]) {
     let m = await yfChartCloses(mktSym, '1y');
-    if ((!m || m.length < 30) && mktSym === 'SPY') m = await yfChartCloses('%5EGSPC', '1y');
+    if ((!m || m.length < 30) && mktSym === 'SPY') m = await yfChartCloses('^GSPC', '1y');
     _mktReturns[mktSym] = m && m.length >= 30 ? dailyReturns(m) : null;
   }
   const mret = _mktReturns[mktSym];
@@ -581,6 +567,7 @@ async function fetchUS(ticker, debug) {
 
   // 3) Yahoo: 베타·목표가·3개월수익률·이동평균(20·60일)
   try {
+    await yfGetCrumb(); // 목표가용 crumb 미리 확보(경합 방지)
     const [bt, tg, closes] = await Promise.all([
       yfBeta(ticker),
       yfTarget(ticker),
