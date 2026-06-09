@@ -327,8 +327,14 @@ async function fillAll(){
       const mk=h.mkt==='US'?('market=US&ticker='+h.apiSym)
              :h.mkt==='COIN'?('market=COIN&ticker='+(h.apiSym||'BTC'))
              :('market=KR&code='+h.apiSym);
-      const r=await fetch((PROXY||'')+'/api/stock?'+mk);
-      const d=await r.json();
+      let d=await (await fetch((PROXY||'')+'/api/stock?'+mk)).json();
+      // px만 오고 펀더멘털·시세지표가 전부 비면(외부API 일시 타임아웃) 1회 재시도
+      const empty=(x)=>x&&!x.error&&x.price!=null&&x.per==null&&x.target==null&&x.beta==null&&x.lo52==null&&x.ret3m==null;
+      if(empty(d)){
+        st.textContent='재시도… '+(n+1)+'/'+targets.length+' ('+h.n+')';
+        await new Promise(r=>setTimeout(r,400));
+        try{const d2=await (await fetch((PROXY||'')+'/api/stock?'+mk)).json(); if(d2&&!d2.error&&!empty(d2))d=d2;}catch(e){}
+      }
       if(d&&!d.error){
         ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta','ma20','ma60'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
         if(d.price!=null)h.px=d.price;
