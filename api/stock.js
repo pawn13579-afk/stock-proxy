@@ -238,6 +238,20 @@ async function fetchKR(code) {
       if (bt != null) { beta = bt; _yfKR = true; }
       if (tg != null && target == null) { target = tg; _yfKR = true; }
       _yfKRdbg = { ySym, beta: bt, target: tg };
+      if (true) {
+        // 상세 진단: 종목 종가·코스피지수 종가·목표가 원본
+        const stk = await yfChartCloses(ySym, '1y');
+        const ks11a = await yfChartCloses('%5EKS11', '1y');
+        const ks11b = await yfChartCloses('^KS11', '1y');
+        let tgRaw = null;
+        try {
+          await yfGetCrumb();
+          const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ySym}?modules=financialData` + (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
+          const tr = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
+          tgRaw = (await tr.text()).slice(0, 220);
+        } catch (e) { tgRaw = 'ERR:' + String(e); }
+        _yfKRdbg.detail = { stkLen: stk ? stk.length : null, ks11_pct: ks11a ? ks11a.length : null, ks11_caret: ks11b ? ks11b.length : null, tgRaw };
+      }
     } else {
       // 심볼 탐색 실패 진단: .KS / .KQ 각각 종가 개수
       const ks = await yfChartCloses(code + '.KS', '5d');
