@@ -238,16 +238,6 @@ async function fetchKR(code) {
       ]);
       if (bt != null) { beta = bt; _yfKR = true; }
       if (tg != null && target == null) { target = tg; _yfKR = true; }
-      // 목표가가 끝내 없으면 Yahoo 원본 확인용 진단 (구조적 부재 vs 버그 구분)
-      if (target == null) {
-        try {
-          const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ySym}?modules=financialData` + (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
-          const tr = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
-          const tt = await tr.text();
-          const m = tt.match(/"targetMeanPrice":\{[^}]*\}|"numberOfAnalystOpinions":\{[^}]*\}/g);
-          _yfKRdbg = { ySym, targetTried: true, found: m ? m.join(' ') : 'no targetMeanPrice in response', snippet: tt.slice(0, 150) };
-        } catch (e) { _yfKRdbg = { ySym, targetErr: String(e) }; }
-      }
     } else {
       // 심볼 탐색 실패 진단: .KS / .KQ 각각 종가 개수
       const ks = await yfChartCloses(code + '.KS', '5d');
