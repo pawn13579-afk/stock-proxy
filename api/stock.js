@@ -252,16 +252,20 @@ async function fetchUS(ticker, debug) {
   // 1) quote: 현재가·시총·PER·EPS·52주
   let Q = {};
   try {
-    const q = await (await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`)).json();
-    if (debug) _dbg.quote = q;
+    const resp = await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`);
+    const txt = await resp.text();
+    if (debug) _dbg.quoteRaw = txt.slice(0, 300);
+    let q; try { q = JSON.parse(txt); } catch { q = null; }
     Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
   } catch (e) { if (debug) _dbg.quoteErr = String(e); }
 
   // 2) ratios-ttm: PBR·PSR·ROE·영업이익률·부채비율
   let R = {};
   try {
-    const r = await (await fetch(`${base}/ratios-ttm?symbol=${ticker}&apikey=${key}`)).json();
-    if (debug) _dbg.ratios = r;
+    const resp = await fetch(`${base}/ratios-ttm?symbol=${ticker}&apikey=${key}`);
+    const txt = await resp.text();
+    if (debug) _dbg.ratiosRaw = txt.slice(0, 300);
+    let r; try { r = JSON.parse(txt); } catch { r = null; }
     R = Array.isArray(r) && r[0] ? r[0] : (r && !r['Error Message'] ? r : {});
   } catch (e) { if (debug) _dbg.ratiosErr = String(e); }
 
