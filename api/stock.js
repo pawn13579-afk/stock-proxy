@@ -594,6 +594,46 @@ async function fetchUS(ticker, debug) {
   return base;
 }
 
+// ---- 암호화폐: 업비트 무료 API (인증 불필요) ----
+async function fetchCOIN(sym) {
+  // sym: 'BTC' 또는 'KRW-BTC'
+  const mkt = sym.includes('-') ? sym.toUpperCase() : 'KRW-' + sym.toUpperCase();
+  const out = { price: null, per: null, pbr: null, psr: null, roe: null, opMargin: null,
+    debtRatio: null, revGrowth: null, opGrowth: null, lo52: null, hi52: null,
+    beta: null, target: null, mcap: null, eps: null, bps: null, ret3m: null,
+    ma20: null, ma60: null, name: sym, _raw_market: 'COIN', _src_api: 'Upbit' };
+  try {
+    // 현재가
+    const t = await fetch(`https://api.upbit.com/v1/ticker?markets=${mkt}`,
+      { headers: { Accept: 'application/json' } });
+    const tj = await t.json();
+    const T = Array.isArray(tj) && tj[0] ? tj[0] : {};
+    out.price = T.trade_price || null;
+    // 52주 최고/최저 (업비트 ticker가 제공)
+    out.hi52 = T.highest_52_week_price || null;
+    out.lo52 = T.lowest_52_week_price || null;
+  } catch (e) {}
+  try {
+    // 일봉 200개: 이동평균·3개월수익률·변동성(베타 대용)
+    const c = await fetch(`https://api.upbit.com/v1/candles/days?market=${mkt}&count=200`,
+      { headers: { Accept: 'application/json' } });
+    const cj = await c.json();
+    if (Array.isArray(cj) && cj.length) {
+      // 업비트는 최신→과거 순. 종가 = trade_price
+      const closes = cj.map(r => r.trade_price).filter(v => v && v > 0); // [최신,...,과거]
+      const now = out.price || closes[0];
+      if (closes.length >= 1 && now) {
+        const idx3m = Math.min(closes.length - 1, 63);
+        out.ret3m = (now / closes[idx3m] - 1) * 100;
+        const avgN = (n) => closes.length >= n ? closes.slice(0, n).reduce((a, b) => a + b, 0) / n : null;
+        out.ma20 = avgN(20);
+        out.ma60 = avgN(60);
+      }
+    }
+  } catch (e) {}
+  return out;
+}
+
 export default async function handler(req, res) {
   // CORS 허용
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -610,8 +650,11 @@ export default async function handler(req, res) {
       const sym = ticker || symbol;
       if (!sym) return res.status(400).json({ error: 'ticker 또는 symbol 필요' });
       out = await fetchUS(sym, req.query.debug === '1');
+    } else if (market === 'COIN') {
+      const sym = ticker || symbol || code || 'BTC';
+      out = await fetchCOIN(sym);
     } else {
-      return res.status(400).json({ error: 'market=US 또는 KR 필요' });
+      return res.status(400).json({ error: 'market=US/KR/COIN 필요' });
     }
     res.status(200).json(out);
   } catch (e) {
