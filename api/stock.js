@@ -242,6 +242,68 @@ async function fetchKR(code) {
   };
 }
 
+// ---- Yahoo Finance 무료 모듈 (키·crumb 불필요: v8 chart) ----
+// 베타 = 종목 일별수익률 vs S&P500 일별수익률의 공분산 ÷ 시장분산
+const YF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+let _spxReturns = null; // S&P500 일별수익률 캐시
+
+async function yfChartCloses(ticker, range = '1y') {
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=1d`,
+      { headers: { 'User-Agent': YF_UA } });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const res = j.chart && j.chart.result && j.chart.result[0];
+    if (!res) return null;
+    const q = res.indicators && res.indicators.quote && res.indicators.quote[0];
+    const adj = res.indicators && res.indicators.adjclose && res.indicators.adjclose[0];
+    const closes = (adj && adj.adjclose) || (q && q.close);
+    return Array.isArray(closes) ? closes.filter(v => v != null) : null;
+  } catch (e) { return null; }
+}
+
+function dailyReturns(closes) {
+  const r = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i - 1] > 0) r.push(closes[i] / closes[i - 1] - 1);
+  }
+  return r;
+}
+
+async function yfBeta(ticker) {
+  const stock = await yfChartCloses(ticker, '1y');
+  if (!stock || stock.length < 30) return null;
+  if (!_spxReturns) {
+    const spx = await yfChartCloses('%5EGSPC', '1y'); // ^GSPC
+    _spxReturns = spx && spx.length >= 30 ? dailyReturns(spx) : null;
+  }
+  if (!_spxReturns) return null;
+  const sr = dailyReturns(stock);
+  const n = Math.min(sr.length, _spxReturns.length);
+  if (n < 30) return null;
+  // 끝(최근)에서 n개 맞춰 정렬
+  const a = sr.slice(-n), b = _spxReturns.slice(-n);
+  const mean = arr => arr.reduce((x, y) => x + y, 0) / arr.length;
+  const ma = mean(a), mb = mean(b);
+  let cov = 0, varb = 0;
+  for (let i = 0; i < n; i++) { cov += (a[i] - ma) * (b[i] - mb); varb += (b[i] - mb) ** 2; }
+  return varb > 0 ? cov / varb : null;
+}
+
+// 목표가: Yahoo quoteSummary financialData (crumb 필요 시 실패하면 null)
+async function yfTarget(ticker) {
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData`,
+      { headers: { 'User-Agent': YF_UA } });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const fd = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0] && j.quoteSummary.result[0].financialData;
+    if (!fd) return null;
+    const tm = fd.targetMeanPrice && (fd.targetMeanPrice.raw != null ? fd.targetMeanPrice.raw : fd.targetMeanPrice);
+    return (typeof tm === 'number' && tm > 0) ? tm : null;
+  } catch (e) { return null; }
+}
+
 // ---- SEC EDGAR: 미국 기업 재무 (무료·키없음·종목무제한). 티커→CIK→companyfacts ----
 const SEC_UA = 'portfolio-sell-tool contact@example.com'; // SEC 요구 User-Agent
 let _cikMap = null; // 티커→CIK 캐시
@@ -440,7 +502,18 @@ async function fetchUS(ticker, debug) {
           if (debug) kis._sec = { used: sec._sec_used, period: sec._sec_period, dbg: sec._sec_dbg };
         }
       } catch (e) {}
-      if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC' };
+      // 베타·목표가·3개월수익률을 Yahoo 무료로 보강 (빈 곳 없애기)
+      try {
+        const [bt, tg, st] = await Promise.all([
+          kis.beta == null ? yfBeta(ticker) : null,
+          kis.target == null ? yfTarget(ticker) : null,
+          kis.ret3m == null ? yfChartCloses(ticker, '3mo') : null,
+        ]);
+        if (bt != null) { kis.beta = bt; kis._src_api += '+YF'; }
+        if (tg != null) { kis.target = tg; if (!kis._src_api.includes('YF')) kis._src_api += '+YF'; }
+        if (st && st.length > 1) { kis.ret3m = (st[st.length - 1] / st[0] - 1) * 100; if (!kis._src_api.includes('YF')) kis._src_api += '+YF'; }
+      } catch (e) {}
+      if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC+YF' };
       return kis;
     }
     // KIS도 실패하면 FMP 나머지라도 시도 (아래 계속)
