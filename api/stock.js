@@ -57,9 +57,11 @@ async function kisGet(path, params, trId, retry = true) {
   });
   const data = await res.json();
   // rate limit(초당 제한)이나 빈 output이면 잠시 쉬고 1회 재시도
-  const emptyOut = !data.output || (Array.isArray(data.output) && data.output.length === 0);
+  const hasData = (data.output && (!Array.isArray(data.output) || data.output.length)) ||
+                  (data.output1) ||
+                  (data.output2 && Array.isArray(data.output2) && data.output2.length);
   const rateLimited = data.msg_cd === 'EGW00201' || data.rt_cd === '1';
-  if ((emptyOut || rateLimited) && retry) {
+  if ((!hasData || rateLimited) && retry) {
     await sleep(350);
     return kisGet(path, params, trId, false);
   }
@@ -278,15 +280,16 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { market, ticker, code } = req.query;
+  const { market, ticker, symbol, code } = req.query;
   try {
     let out;
     if (market === 'KR') {
       if (!code) return res.status(400).json({ error: 'code(6자리 종목코드) 필요' });
       out = await fetchKR(code);
     } else if (market === 'US') {
-      if (!ticker) return res.status(400).json({ error: 'ticker 필요' });
-      out = await fetchUS(ticker);
+      const sym = ticker || symbol;
+      if (!sym) return res.status(400).json({ error: 'ticker 또는 symbol 필요' });
+      out = await fetchUS(sym);
     } else {
       return res.status(400).json({ error: 'market=US 또는 KR 필요' });
     }
