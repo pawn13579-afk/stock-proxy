@@ -243,24 +243,27 @@ async function fetchKR(code) {
 }
 
 // ---- 미국주식: FMP 신규 /stable/ 경로 (2025.9 이후) ----
-async function fetchUS(ticker) {
+async function fetchUS(ticker, debug) {
   const key = process.env.FMP_KEY;
   const base = 'https://financialmodelingprep.com/stable';
   const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
+  const _dbg = {};
 
   // 1) quote: 현재가·시총·PER·EPS·52주
   let Q = {};
   try {
     const q = await (await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`)).json();
+    if (debug) _dbg.quote = q;
     Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
-  } catch (e) {}
+  } catch (e) { if (debug) _dbg.quoteErr = String(e); }
 
   // 2) ratios-ttm: PBR·PSR·ROE·영업이익률·부채비율
   let R = {};
   try {
     const r = await (await fetch(`${base}/ratios-ttm?symbol=${ticker}&apikey=${key}`)).json();
+    if (debug) _dbg.ratios = r;
     R = Array.isArray(r) && r[0] ? r[0] : (r && !r['Error Message'] ? r : {});
-  } catch (e) {}
+  } catch (e) { if (debug) _dbg.ratiosErr = String(e); }
 
   // 3) 애널리스트 목표가 컨센서스
   let target = null;
@@ -317,6 +320,7 @@ async function fetchUS(ticker) {
     ret3m: ret3m,
     name: Q.name || ticker,
     _raw_market: 'US',
+    ...(debug ? { _dbg } : {}),
   };
 }
 
@@ -335,7 +339,7 @@ export default async function handler(req, res) {
     } else if (market === 'US') {
       const sym = ticker || symbol;
       if (!sym) return res.status(400).json({ error: 'ticker 또는 symbol 필요' });
-      out = await fetchUS(sym);
+      out = await fetchUS(sym, req.query.debug === '1');
     } else {
       return res.status(400).json({ error: 'market=US 또는 KR 필요' });
     }
