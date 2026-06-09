@@ -187,7 +187,13 @@ function valScore(h){ // PER/PBR/PSR 높을수록 매도. PER<=0(적자)=최악
 }
 function growthScore(h){return avg([pct(x=>x.revGrowth,-1,h),pct(x=>x.opGrowth,-1,h)]);}
 function profitScore(h){return avg([pct(x=>x.opMargin,-1,h),pct(x=>x.roe,-1,h),pct(x=>x.debtRatio,+1,h)]);}
-function momScore(h){let p=[pct(pos52,+1,h),pct(x=>x.ret3m,-1,h)];if(h.ma20!=null)p.push(h.ma20?3:8);if(h.ma60!=null)p.push(h.ma60?3:8);return avg(p);}
+function momScore(h){
+  let p=[pct(pos52,+1,h),pct(x=>x.ret3m,-1,h)];
+  // 이동평균: 현재가가 이평선 아래면 하락추세=매도우선(높은점수), 위면 상승추세=후순위(낮은점수)
+  if(h.px!=null&&h.ma20!=null&&h.ma20>0)p.push(h.px>=h.ma20?3.5:7.5);
+  if(h.px!=null&&h.ma60!=null&&h.ma60>0)p.push(h.px>=h.ma60?3.5:7.5);
+  return avg(p);
+}
 function rarScore(h){ // 베타 우선, 없으면 52주 변동폭
   if(HOLD.some(x=>x.beta!=null))return pct(x=>x.beta,+1,h);
   return pct(volRange,+1,h);
@@ -227,7 +233,7 @@ async function fillAll(){
       const r=await fetch((PROXY||'')+'/api/stock?'+mk);
       const d=await r.json();
       if(d&&!d.error){
-        ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
+        ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta','ma20','ma60'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
         if(d.price!=null)h.px=d.price;
         // 수급 자동: 외인+기관 순매수÷거래량(%) → 매수(+1)/매도(-1) 방향. 한국주만.
         if(h.mkt==='KR'&&d.flow!=null){const dir=d.flow>0?1:d.flow<0?-1:null;h.frn=dir;h.inst=dir;h.flowRaw=d.flow;}
