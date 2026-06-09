@@ -242,12 +242,57 @@ async function fetchKR(code) {
   };
 }
 
+// ---- 미국주식 KIS 폴백: FMP 무료키에서 막힌 종목용 (현재가·PER·PBR·EPS·52주·시총) ----
+//      거래소를 모를 때 NAS→NYS→AMS 순서로 자동 탐색
+async function fetchUS_KIS(ticker) {
+  const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
+  const excds = ['NAS', 'NYS', 'AMS'];
+  for (const excd of excds) {
+    try {
+      const r = await kisGet(
+        '/uapi/overseas-price/v1/quotations/price-detail',
+        { AUTH: '', EXCD: excd, SYMB: ticker },
+        'HHDFS76200200', false
+      );
+      const o = r.output || {};
+      const last = num(o.last);
+      if (last && last > 0) {
+        return {
+          price: last,
+          per: num(o.perx),
+          pbr: num(o.pbrx),
+          psr: null,
+          roe: null,
+          opMargin: null,
+          debtRatio: null,
+          revGrowth: null,
+          opGrowth: null,
+          lo52: num(o.l52p),
+          hi52: num(o.h52p),
+          beta: null,
+          target: null,
+          mcap: num(o.tomv),
+          eps: num(o.epsx),
+          bps: num(o.bpsx),
+          ret3m: null,
+          name: ticker,
+          _raw_market: 'US',
+          _src_api: 'KIS(' + excd + ')',
+        };
+      }
+    } catch (e) {}
+    await sleep(120);
+  }
+  return null;
+}
+
 // ---- 미국주식: FMP 신규 /stable/ 경로 (2025.9 이후) ----
 async function fetchUS(ticker, debug) {
   const key = process.env.FMP_KEY;
   const base = 'https://financialmodelingprep.com/stable';
   const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
   const _dbg = {};
+  let fmpBlocked = false; // FMP가 Premium 거부했는지
 
   // 1) quote: 현재가·시총·PER·EPS·52주
   let Q = {};
@@ -255,9 +300,20 @@ async function fetchUS(ticker, debug) {
     const resp = await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`);
     const txt = await resp.text();
     if (debug) _dbg.quoteRaw = txt.slice(0, 300);
+    if (txt.includes('Premium') || txt.includes('not available')) fmpBlocked = true;
     let q; try { q = JSON.parse(txt); } catch { q = null; }
     Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
   } catch (e) { if (debug) _dbg.quoteErr = String(e); }
+
+  // FMP가 이 종목을 막았으면(Premium) → KIS 해외 API로 폴백
+  if (fmpBlocked || Q.price == null) {
+    const kis = await fetchUS_KIS(ticker);
+    if (kis) {
+      if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS' };
+      return kis;
+    }
+    // KIS도 실패하면 FMP 나머지라도 시도 (아래 계속)
+  }
 
   // 2) ratios-ttm: PBR·PSR·ROE·영업이익률·부채비율
   let R = {};
