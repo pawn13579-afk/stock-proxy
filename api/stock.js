@@ -107,9 +107,8 @@ async function fetchKR(code) {
     eps: num(o.eps),
     bps: num(o.bps),
     ret3m: null,
-    name: o.rprs_mrkt_kor_name || code,
+    name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
-    _debug: { fr_keys: Object.keys(fr), pr_keys: Object.keys(pr) }, // 필드명 확인용
   };
 }
 
@@ -143,13 +142,14 @@ async function fetchUS(ticker) {
 
   return {
     price: num(Q.price),
-    per: num(Q.pe) || num(Q.priceEarningsRatio),
-    pbr: num(R.priceToBookRatioTTM) || num(R.pbRatioTTM) || num(R.priceToBookRatio),
-    psr: num(R.priceToSalesRatioTTM) || num(R.priceToSalesRatio),
-    roe: R.returnOnEquityTTM != null ? num(R.returnOnEquityTTM) * 100 : null,
+    per: num(R.priceToEarningsRatioTTM) || num(Q.pe) || num(Q.priceEarningsRatio),
+    pbr: num(R.priceToBookRatioTTM),
+    psr: num(R.priceToSalesRatioTTM),
+    // ROE는 이 엔드포인트에 직접 없음 → 주당순이익÷주당자본 ×100 으로 계산
+    roe: (R.netIncomePerShareTTM != null && R.shareholdersEquityPerShareTTM)
+         ? num(R.netIncomePerShareTTM) / num(R.shareholdersEquityPerShareTTM) * 100 : null,
     opMargin: R.operatingProfitMarginTTM != null ? num(R.operatingProfitMarginTTM) * 100 : null,
-    debtRatio: R.debtToEquityRatioTTM != null ? num(R.debtToEquityRatioTTM) * 100
-              : (R.debtEquityRatioTTM != null ? num(R.debtEquityRatioTTM) * 100 : null),
+    debtRatio: R.debtToEquityRatioTTM != null ? num(R.debtToEquityRatioTTM) * 100 : null,
     revGrowth: null,
     opGrowth: null,
     lo52: num(Q.yearLow),
@@ -157,12 +157,11 @@ async function fetchUS(ticker) {
     beta: null,
     target: target,
     mcap: num(Q.marketCap),
-    eps: num(Q.eps),
-    bps: null,
+    eps: num(R.netIncomePerShareTTM),
+    bps: num(R.bookValuePerShareTTM),
     ret3m: null,
     name: Q.name || ticker,
     _raw_market: 'US',
-    _debug: { quote_keys: Object.keys(Q), ratios_keys: Object.keys(R) }, // 필드명 확인용
   };
 }
 
