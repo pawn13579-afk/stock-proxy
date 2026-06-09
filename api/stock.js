@@ -160,13 +160,13 @@ async function fetchKR(code) {
     if (goals.length) target = Math.round(goals.reduce((a, b) => a + b, 0) / goals.length);
   } catch (e) {}
 
-  // 6) 3개월 수익률: 기간별시세(일봉)에서 ~3개월 전 종가 대비 현재가
-  let ret3m = null;
+  // 6) 3개월 수익률 + 이동평균(20·60일): 기간별시세(일봉) 활용
+  let ret3m = null, ma20 = null, ma60 = null;
   try {
     await sleep(150);
     const today = new Date();
     const d2 = today.toISOString().slice(0, 10).replace(/-/g, '');
-    const past = new Date(today.getTime() - 1000 * 60 * 60 * 24 * 95); // 약 3개월 + 여유
+    const past = new Date(today.getTime() - 1000 * 60 * 60 * 24 * 130); // 60일선 위해 넉넉히
     const d1 = past.toISOString().slice(0, 10).replace(/-/g, '');
     const chart = await kisGet(
       '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
@@ -176,11 +176,17 @@ async function fetchKR(code) {
       'FHKST03010100'
     );
     const series = Array.isArray(chart.output2) ? chart.output2 : [];
-    const closes = series.map(r => num(r.stck_clpr)).filter(v => v && v > 0);
+    const closes = series.map(r => num(r.stck_clpr)).filter(v => v && v > 0); // 최신→과거 순
     const nowPx = num(o.stck_prpr);
     if (closes.length && nowPx) {
-      const oldPx = closes[closes.length - 1]; // 가장 오래된(=약 3개월 전) 종가
-      ret3m = (nowPx / oldPx - 1) * 100;
+      const oldPx = closes[closes.length - 1]; // 약 3개월 전(여기선 더 과거지만 충분히 옛날)
+      // ret3m은 정확히 ~3개월 전 종가로: 약 63거래일 전
+      const idx3m = Math.min(closes.length - 1, 63);
+      ret3m = (nowPx / closes[idx3m] - 1) * 100;
+      // 이동평균: 최신 N개 평균
+      const avgN = (n) => closes.length >= n ? closes.slice(0, n).reduce((a, b) => a + b, 0) / n : null;
+      ma20 = avgN(20);
+      ma60 = avgN(60);
     }
   } catch (e) {}
 
@@ -218,6 +224,21 @@ async function fetchKR(code) {
     }
   } catch (e) {}
 
+  // 8) Yahoo 보강: 베타(코스피지수 대비)·목표가(KIS에 없을 때)
+  let beta = null;
+  let _yfKR = false;
+  try {
+    const ySym = await krYahooSymbol(code);
+    if (ySym) {
+      const [bt, tg] = await Promise.all([
+        yfBeta(ySym, '%5EKS11'),                 // 한국 베타는 코스피지수(^KS11) 대비
+        target == null ? yfTarget(ySym) : null,  // 목표가가 KIS에 없으면 Yahoo
+      ]);
+      if (bt != null) { beta = bt; _yfKR = true; }
+      if (tg != null && target == null) { target = tg; _yfKR = true; }
+    }
+  } catch (e) {}
+
   return {
     price: num(o.stck_prpr),
     per: num(o.per),
@@ -230,17 +251,20 @@ async function fetchKR(code) {
     opGrowth: num(gr.bsop_prfi_inrt),
     lo52: num(o.w52_lwpr),
     hi52: num(o.w52_hgpr),
-    beta: null,
+    beta: beta,
     target: target,
     mcap: mcapUnit,
     eps: num(o.eps),
     bps: num(o.bps),
     ret3m: ret3m,
+    ma20: ma20,
+    ma60: ma60,
     flow: flowScore,
     frgnNtby: frgnNtby,
     orgnNtby: orgnNtby,
     name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
+    _src_api: 'KIS' + (_yfKR ? '+YF' : ''),
     _period: { fr: fr.stac_yymm, gr: gr.stac_yymm, inc: annual.stac_yymm },
   };
 }
@@ -248,7 +272,7 @@ async function fetchKR(code) {
 // ---- Yahoo Finance 무료 모듈 (키·crumb 불필요: v8 chart) ----
 // 베타 = 종목 일별수익률 vs S&P500 일별수익률의 공분산 ÷ 시장분산
 const YF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
-let _spxReturns = null; // S&P500 일별수익률 캐시
+// (베타 시장수익률 캐시는 _mktReturns 사용)
 
 async function yfChartCloses(ticker, range = '1y') {
   try {
@@ -273,20 +297,21 @@ function dailyReturns(closes) {
   return r;
 }
 
-async function yfBeta(ticker) {
+let _mktReturns = {}; // 시장별 일별수익률 캐시 (US: SPY, KR: ^KS11)
+async function yfBeta(ticker, mktSym = 'SPY') {
   const stock = await yfChartCloses(ticker, '1y');
   if (!stock || stock.length < 30) return null;
-  if (!_spxReturns) {
-    // ^GSPC는 ^ 인코딩 이슈가 있어 S&P500 추종 ETF인 SPY로 대체 (거의 동일)
-    let spx = await yfChartCloses('SPY', '1y');
-    if (!spx || spx.length < 30) spx = await yfChartCloses('%5EGSPC', '1y'); // 폴백
-    _spxReturns = spx && spx.length >= 30 ? dailyReturns(spx) : null;
+  if (!_mktReturns[mktSym]) {
+    let m = await yfChartCloses(mktSym, '1y');
+    if ((!m || m.length < 30) && mktSym === 'SPY') m = await yfChartCloses('%5EGSPC', '1y');
+    _mktReturns[mktSym] = m && m.length >= 30 ? dailyReturns(m) : null;
   }
-  if (!_spxReturns) return null;
+  const mret = _mktReturns[mktSym];
+  if (!mret) return null;
   const sr = dailyReturns(stock);
-  const n = Math.min(sr.length, _spxReturns.length);
+  const n = Math.min(sr.length, mret.length);
   if (n < 30) return null;
-  const a = sr.slice(-n), b = _spxReturns.slice(-n);
+  const a = sr.slice(-n), b = mret.slice(-n);
   const mean = arr => arr.reduce((x, y) => x + y, 0) / arr.length;
   const ma = mean(a), mb = mean(b);
   let cov = 0, varb = 0;
@@ -329,6 +354,19 @@ async function yfTarget(ticker, debug) {
     const tm = fd.targetMeanPrice && (fd.targetMeanPrice.raw != null ? fd.targetMeanPrice.raw : fd.targetMeanPrice);
     return (typeof tm === 'number' && tm > 0) ? tm : null;
   } catch (e) { return null; }
+}
+
+// 한국주 Yahoo 심볼 탐색: 종목코드.KS(코스피) 또는 .KQ(코스닥)
+let _krYahooSym = {}; // code → 'XXXXXX.KS' 캐시
+async function krYahooSymbol(code) {
+  if (_krYahooSym[code] !== undefined) return _krYahooSym[code];
+  for (const sfx of ['.KS', '.KQ']) {
+    const sym = code + sfx;
+    const c = await yfChartCloses(sym, '5d');
+    if (c && c.length) { _krYahooSym[code] = sym; return sym; }
+  }
+  _krYahooSym[code] = null;
+  return null;
 }
 
 // ---- SEC EDGAR: 미국 기업 재무 (무료·키없음·종목무제한). 티커→CIK→companyfacts ----
@@ -519,17 +557,28 @@ async function fetchUS(ticker, debug) {
     }
   } catch (e) {}
 
-  // 3) Yahoo: 베타·목표가·3개월수익률
+  // 3) Yahoo: 베타·목표가·3개월수익률·이동평균(20·60일)
   try {
-    const [bt, tg, st] = await Promise.all([
+    const [bt, tg, closes] = await Promise.all([
       yfBeta(ticker),
       yfTarget(ticker),
-      yfChartCloses(ticker, '3mo'),
+      yfChartCloses(ticker, '6mo'), // 60일선 위해 6개월
     ]);
     let yfUsed = false;
     if (bt != null) { base.beta = bt; yfUsed = true; }
     if (tg != null) { base.target = tg; yfUsed = true; }
-    if (st && st.length > 1) { base.ret3m = (st[st.length - 1] / st[0] - 1) * 100; yfUsed = true; }
+    if (closes && closes.length > 1) {
+      // Yahoo 종가는 과거→최신 순 (배열 끝이 최신)
+      const n = closes.length;
+      // 3개월수익률: 약 63거래일 전 대비
+      const idx3m = Math.max(0, n - 1 - 63);
+      base.ret3m = (closes[n - 1] / closes[idx3m] - 1) * 100;
+      // 이동평균: 최신 N개 평균 (배열 끝에서 N개)
+      const avgLastN = (k) => n >= k ? closes.slice(n - k).reduce((a, b) => a + b, 0) / k : null;
+      base.ma20 = avgLastN(20);
+      base.ma60 = avgLastN(60);
+      yfUsed = true;
+    }
     if (yfUsed) base._src_api += '+YF';
   } catch (e) {}
 
