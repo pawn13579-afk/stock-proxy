@@ -30,7 +30,17 @@
   .card .v{font-family:'Spline Sans Mono';font-size:20px;font-weight:600;margin-top:4px}
   .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:11.5px;color:var(--dim);margin-bottom:12px}
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
-  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;scrollbar-width:auto;scrollbar-color:var(--gold) var(--panel2)}
+  .tablewrap::-webkit-scrollbar{height:14px;width:14px}
+  .tablewrap::-webkit-scrollbar-track{background:var(--panel2);border-radius:7px}
+  .tablewrap::-webkit-scrollbar-thumb{background:var(--gold);border-radius:7px;border:2px solid var(--panel2)}
+  .tablewrap::-webkit-scrollbar-thumb:hover{background:#e0b84a}
+  /* 표 위쪽 가짜 스크롤바(아래로 내려가도 가로 스크롤 가능) */
+  .topscroll{overflow-x:auto;overflow-y:hidden;height:16px;scrollbar-color:var(--gold) var(--panel2)}
+  .topscroll::-webkit-scrollbar{height:14px}
+  .topscroll::-webkit-scrollbar-track{background:var(--panel2);border-radius:7px}
+  .topscroll::-webkit-scrollbar-thumb{background:var(--gold);border-radius:7px;border:2px solid var(--panel2)}
+  .topscroll-inner{height:1px;width:2400px}
   table{border-collapse:collapse;width:100%;min-width:2400px;font-size:12.5px}
   th,td{padding:7px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
   th{background:var(--panel2);color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;cursor:help}
@@ -71,8 +81,8 @@
 <body>
 <header>
   <h1>SELL DECISION ENGINE <span class="ko">v2 · 부부 포트폴리오 매도 도구</span></h1>
-  <div class="sub">위 <b style="color:var(--seedtxt)">프록시 주소를 넣고 [🔄 API 자동채우기]</b>를 누르면, 한국·미국 29종목의 PER·PBR·PSR·ROE·영업이익률·부채비율·성장률·52주·목표가가 자동으로 채워집니다(KIS·FMP). 비율을 직접 받으므로 계산·입력 불필요.</div>
-  <div class="warnbar">⚠️ 자동채우기 후 비는 칸: 한국주 목표가(KIS 미제공)·베타·3개월수익률·차트(20/60일선)·수급. 이 중 목표가만 ER 축에 영향 — 필요하면 네이버에서 그것만 수동. 차트·수급은 보고 선택. 종목코드 없는 3개(에이직랜드·TIGER원자력·1Q200액티브)는 영웅문 코드 확인 후 종목명 옆 칸에 입력. ETF·비트코인은 일부만 채워짐.</div>
+  <div class="sub">위 <b style="color:var(--seedtxt)">프록시 주소를 넣고 [🔄 API 자동채우기]</b>를 누르면, 한국·미국 종목의 PER·PBR·PSR·ROE·영업이익률·부채비율·성장률·52주·목표가·3개월수익률·수급(한국)·베타(미국)가 자동으로 채워집니다(KIS·FMP). 비율을 직접 받으므로 계산·입력 불필요.</div>
+  <div class="warnbar">⚠️ ETF·비트코인은 재무지표가 없거나 일부만 채워집니다. 코스닥 소형주는 증권사 목표가가 없으면 ER 축이 빕니다(그 종목은 다른 축으로 평가). 한국주 수급은 장 마감 후 데이터가 더 정확합니다. 차트(20/60일선)는 보고 직접 선택. 빈 축은 점수에서 자동 제외되고 ●로 표시됩니다.</div>
 </header>
 <div class="wrap">
   <div class="controls">
@@ -107,7 +117,8 @@
     <span><span class="dot" style="background:var(--neg)"></span>매도점수 높음(먼저)</span>
     <span><span class="dot" style="background:var(--pos)"></span>낮음(보유)</span>
   </div>
-  <div class="tablewrap"><table id="tbl"><thead><tr>
+  <div class="topscroll" id="topscroll"><div class="topscroll-inner"></div></div>
+  <div class="tablewrap" id="tablewrap"><table id="tbl"><thead><tr>
     <th class="l" title="매도 우선순위">#</th>
     <th class="l" title="종목·등급·⚑·계좌·API심볼">종목 / 등급 / ⚑ / 계좌·심볼</th>
     <th title="평가금액 합산(만원)">평가</th>
@@ -321,6 +332,10 @@ function exportData(){const blob=new Blob([JSON.stringify({HOLD,W,PROXY},null,2)
 function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=JSON.parse(ev.target.result);if(d.HOLD&&Array.isArray(d.HOLD)){HOLD=d.HOLD;}if(d.W)W=d.W;if(d.PROXY){PROXY=d.PROXY;const e2=document.getElementById('proxyUrl');if(e2)e2.value=PROXY;}saveData();render();renderWeights();alert('복원 완료 ('+HOLD.length+'종목)');}catch(err){alert('실패: '+err.message);}};r.readAsText(f);}
 if(PROXY)setTimeout(()=>{const e=document.getElementById('proxyUrl');if(e)e.value=PROXY;},0);
 renderWeights();render();
+// 위쪽 가짜 스크롤바 ↔ 표 스크롤 동기화
+(function(){const top=document.getElementById('topscroll'),tw=document.getElementById('tablewrap');
+if(top&&tw){top.addEventListener('scroll',()=>{tw.scrollLeft=top.scrollLeft;});
+tw.addEventListener('scroll',()=>{top.scrollLeft=tw.scrollLeft;});}})();
 </script>
 </body>
 </html>
