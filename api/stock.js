@@ -67,47 +67,52 @@ async function fetchKR(code) {
   );
   const o = price.output || {};
 
-  // 2) 재무비율: ROE·부채비율·EPS·BPS — 0(년) 기준, output[0]=최근 연간
+  // 헬퍼: output 배열에서 stac_yymm이 12월로 끝나는 최근 연간 행 선택
+  const pickAnnual = (arr) => {
+    if (!Array.isArray(arr) || !arr.length) return {};
+    return arr.find(r => String(r.stac_yymm || '').endsWith('12')) || arr[0];
+  };
+
+  // 2) 재무비율: ROE·부채비율·EPS·BPS — 0(년), 12월 연간 행 선택
   let fr = {};
   try {
     const r = await kisGet(
       '/uapi/domestic-stock/v1/finance/financial-ratio',
-      { fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code }, // 0=년
+      { fid_input_iscd: code, fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J' },
       'FHKST66430300'
     );
-    fr = (r.output && r.output[0]) ? r.output[0] : {};
+    fr = pickAnnual(r.output);
   } catch (e) {}
 
-  // 3) 성장성비율: 매출성장·영익성장 — 0(년) 기준
+  // 3) 성장성비율: 매출성장·영익성장 — 0(년), 12월 연간 행 선택
   let gr = {};
   try {
     const g = await kisGet(
       '/uapi/domestic-stock/v1/finance/growth-ratio',
-      { fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code },
+      { fid_input_iscd: code, fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J' },
       'FHKST66430800'
     );
-    gr = (g.output && g.output[0]) ? g.output[0] : {};
+    gr = pickAnnual(g.output);
   } catch (e) {}
 
-  // 4) 손익계산서: 0(년) 호출 후 stac_yymm이 '12'로 끝나는(연간 전체) 최근 행 선택
+  // 4) 손익계산서: 0(년), 12월 연간 행 선택 → 영업이익률·PSR 계산
   let incRows = [];
   try {
     const ic = await kisGet(
       '/uapi/domestic-stock/v1/finance/income-statement',
-      { fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code },
+      { fid_input_iscd: code, fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J' },
       'FHKST66430200'
     );
     incRows = Array.isArray(ic.output) ? ic.output : [];
   } catch (e) {}
-  // 연간 전체(12월 결산) 행만, 가장 최근 것
-  const annual = incRows.find(r => String(r.stac_yymm || '').endsWith('12')) || incRows[0] || {};
-  const sale = num(annual.sale_account);   // 매출액
-  const op = num(annual.bsop_prti);        // 영업이익
-  const mcapUnit = num(o.hts_avls);        // 시가총액(억원)
+  const annual = pickAnnual(incRows);
+  const sale = num(annual.sale_account);
+  const op = num(annual.bsop_prti);
+  const mcapUnit = num(o.hts_avls);
 
   let opMargin = null, psr = null;
-  if (op != null && sale) opMargin = op / sale * 100;          // 영업이익률
-  if (mcapUnit != null && sale) psr = mcapUnit / sale;          // PSR = 시총 ÷ 매출 (둘 다 억원)
+  if (op != null && sale) opMargin = op / sale * 100;
+  if (mcapUnit != null && sale) psr = mcapUnit / sale;
 
   return {
     price: num(o.stck_prpr),
