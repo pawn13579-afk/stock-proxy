@@ -350,17 +350,30 @@ async function yfGetCrumb() {
 }
 
 async function yfTarget(ticker, debug) {
+  const q = await yfQuote(ticker);
+  return q ? q.target : null;
+}
+// Yahoo에서 목표가·PER·PBR·52주를 한 번에 (KIS 누락분 보강용)
+async function yfQuote(ticker) {
   try {
     await yfGetCrumb();
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData` +
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData,summaryDetail,defaultKeyStatistics` +
       (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
     const r = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
     if (!r.ok) return null;
     const j = await r.json();
-    const fd = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0] && j.quoteSummary.result[0].financialData;
-    if (!fd) return null;
-    const tm = fd.targetMeanPrice && (fd.targetMeanPrice.raw != null ? fd.targetMeanPrice.raw : fd.targetMeanPrice);
-    return (typeof tm === 'number' && tm > 0) ? tm : null;
+    const R = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
+    if (!R) return null;
+    const fd = R.financialData || {}, sd = R.summaryDetail || {}, ks = R.defaultKeyStatistics || {};
+    const num = (x) => (x && x.raw != null) ? x.raw : (typeof x === 'number' ? x : null);
+    const tm = num(fd.targetMeanPrice);
+    return {
+      target: (typeof tm === 'number' && tm > 0) ? tm : null,
+      per: num(sd.trailingPE) || num(ks.trailingPE) || null,
+      pbr: num(ks.priceToBook) || null,
+      hi52: num(sd.fiftyTwoWeekHigh) || null,
+      lo52: num(sd.fiftyTwoWeekLow) || null,
+    };
   } catch (e) { return null; }
 }
 
@@ -565,17 +578,24 @@ async function fetchUS(ticker, debug) {
     }
   } catch (e) {}
 
-  // 3) Yahoo: 베타·목표가·3개월수익률·이동평균(20·60일)
+  // 3) Yahoo: 베타·목표가·3개월수익률·이동평균(20·60일) + KIS 누락분(per·pbr·52주) 보강
   try {
     await yfGetCrumb(); // 목표가용 crumb 미리 확보(경합 방지)
-    const [bt, tg, closes] = await Promise.all([
+    const [bt, yq, closes] = await Promise.all([
       yfBeta(ticker),
-      yfTarget(ticker),
+      yfQuote(ticker),
       yfChartCloses(ticker, '6mo'), // 60일선 위해 6개월
     ]);
     let yfUsed = false;
     if (bt != null) { base.beta = bt; yfUsed = true; }
-    if (tg != null) { base.target = tg; yfUsed = true; }
+    if (yq) {
+      if (yq.target != null) { base.target = yq.target; yfUsed = true; }
+      // KIS가 못 준 값만 Yahoo로 보강 (KIS 우선)
+      if (base.per == null && yq.per != null) { base.per = yq.per; yfUsed = true; }
+      if (base.pbr == null && yq.pbr != null) { base.pbr = yq.pbr; yfUsed = true; }
+      if (base.lo52 == null && yq.lo52 != null) { base.lo52 = yq.lo52; yfUsed = true; }
+      if (base.hi52 == null && yq.hi52 != null) { base.hi52 = yq.hi52; yfUsed = true; }
+    }
     if (closes && closes.length > 1) {
       // Yahoo 종가는 과거→최신 순 (배열 끝이 최신)
       const n = closes.length;
