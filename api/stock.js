@@ -78,37 +78,51 @@ async function fetchKR(code) {
     fr = (r.output && r.output[0]) ? r.output[0] : {};
   } catch (e) {}
 
-  // 3) 수익성비율: 영업이익률(매출액영업이익률)
-  let pr = {};
+  // 3) 손익계산서: 매출·영업이익 → 영업이익률·PSR 직접 계산 (비율 API가 빌 때 더 확실)
+  let inc = {};
   try {
-    const p = await kisGet(
-      '/uapi/domestic-stock/v1/finance/profit-ratio',
+    const ic = await kisGet(
+      '/uapi/domestic-stock/v1/finance/income-statement',
       { FID_DIV_CLS_CODE: '1', fid_cond_mrkt_div_code: 'J', fid_input_iscd: code },
-      'FHKST66430400'
+      'FHKST66430200'
     );
-    pr = (p.output && p.output[0]) ? p.output[0] : {};
+    inc = (ic.output && ic.output[0]) ? ic.output[0] : {};
   } catch (e) {}
+
+  // 매출·영업이익 후보 필드 (KIS 표기 흔들림 대비 여러 후보)
+  const sale = num(inc.sale_account) || num(inc.revenue) || num(inc.sale_totl_prfi);
+  const op = num(inc.bsop_prti) || num(inc.bsop_prfi) || num(inc.operating_income);
+  const mcapManwon = num(o.hts_avls); // 시총(억원으로 추정)
+  let opMargin = null, psr = null;
+  if (op != null && sale) opMargin = op / sale * 100;
+  // PSR = 시총 / 매출. 단위만 같으면 비율은 정확 (둘 다 억원이라 가정)
+  if (mcapManwon != null && sale) psr = mcapManwon / sale;
 
   return {
     price: num(o.stck_prpr),
     per: num(o.per),
     pbr: num(o.pbr),
-    psr: null,                                   // KIS 미제공(시총÷매출로 보완 가능)
-    roe: num(fr.roe_val),                        // ROE
-    opMargin: num(pr.sale_totl_rate),            // 매출액영업이익률(필드명은 배포 후 확인·조정)
-    debtRatio: num(fr.lblt_rate),                // 부채비율
-    revGrowth: num(fr.grs),                      // 매출액증가율
-    opGrowth: num(fr.bsop_prfi_inrt),            // 영업이익증가율
+    psr: psr,
+    roe: num(fr.roe_val),
+    opMargin: opMargin,
+    debtRatio: num(fr.lblt_rate),
+    revGrowth: num(fr.grs),
+    opGrowth: num(fr.bsop_prfi_inrt),
     lo52: num(o.w52_lwpr),
     hi52: num(o.w52_hgpr),
-    beta: null,                                  // KIS 미제공
-    target: null,                                // 한국주 목표가는 KIS 약함 → 보완 필요
-    mcap: num(o.hts_avls),                       // 시가총액(억원)
+    beta: null,
+    target: null,
+    mcap: mcapManwon,
     eps: num(o.eps),
     bps: num(o.bps),
     ret3m: null,
     name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
+    _debug: {
+      fr_keys: Object.keys(fr),
+      inc_keys: Object.keys(inc),
+      inc_sample: { sale_account: inc.sale_account, bsop_prti: inc.bsop_prti, bsop_prfi: inc.bsop_prfi },
+    },
   };
 }
 
