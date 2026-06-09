@@ -113,44 +113,48 @@ async function fetchKR(code) {
   };
 }
 
-// ---- 미국주식: FMP quote + ratios-ttm + price-target ----
+// ---- 미국주식: FMP 신규 /stable/ 경로 (2025.9 이후) ----
 async function fetchUS(ticker) {
   const key = process.env.FMP_KEY;
-  const base = 'https://financialmodelingprep.com/api/v3';
+  const base = 'https://financialmodelingprep.com/stable';
   const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
 
   // 1) quote: 현재가·시총·PER·EPS·52주
-  const q = await (await fetch(`${base}/quote/${ticker}?apikey=${key}`)).json();
-  const Q = Array.isArray(q) && q[0] ? q[0] : {};
+  let Q = {};
+  try {
+    const q = await (await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`)).json();
+    Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
+  } catch (e) {}
 
   // 2) ratios-ttm: PBR·PSR·ROE·영업이익률·부채비율
   let R = {};
   try {
-    const r = await (await fetch(`${base}/ratios-ttm/${ticker}?apikey=${key}`)).json();
-    R = Array.isArray(r) && r[0] ? r[0] : {};
+    const r = await (await fetch(`${base}/ratios-ttm?symbol=${ticker}&apikey=${key}`)).json();
+    R = Array.isArray(r) && r[0] ? r[0] : (r && !r['Error Message'] ? r : {});
   } catch (e) {}
 
-  // 3) 애널리스트 목표가
+  // 3) 애널리스트 목표가 컨센서스
   let target = null;
   try {
-    const t = await (await fetch(`${base}/price-target-consensus/${ticker}?apikey=${key}`)).json();
+    const t = await (await fetch(`${base}/price-target-consensus?symbol=${ticker}&apikey=${key}`)).json();
     const T = Array.isArray(t) && t[0] ? t[0] : {};
-    target = num(T.targetConsensus) || num(T.targetMedian);
+    target = num(T.targetConsensus) || num(T.targetMedian) || num(T.targetHigh);
   } catch (e) {}
 
   return {
     price: num(Q.price),
-    per: num(Q.pe),
-    pbr: num(R.priceToBookRatioTTM),
-    psr: num(R.priceToSalesRatioTTM),
+    per: num(Q.pe) || num(Q.priceEarningsRatio),
+    pbr: num(R.priceToBookRatioTTM) || num(R.pbRatioTTM) || num(R.priceToBookRatio),
+    psr: num(R.priceToSalesRatioTTM) || num(R.priceToSalesRatio),
     roe: R.returnOnEquityTTM != null ? num(R.returnOnEquityTTM) * 100 : null,
     opMargin: R.operatingProfitMarginTTM != null ? num(R.operatingProfitMarginTTM) * 100 : null,
-    debtRatio: R.debtEquityRatioTTM != null ? num(R.debtEquityRatioTTM) * 100 : null,
-    revGrowth: null, // 성장률은 별도 엔드포인트(income-statement-growth)에서
+    debtRatio: R.debtToEquityRatioTTM != null ? num(R.debtToEquityRatioTTM) * 100
+              : (R.debtEquityRatioTTM != null ? num(R.debtEquityRatioTTM) * 100 : null),
+    revGrowth: null,
     opGrowth: null,
     lo52: num(Q.yearLow),
     hi52: num(Q.yearHigh),
-    beta: null, // FMP profile에 있으나 호출 절약 위해 생략(원하면 추가)
+    beta: null,
     target: target,
     mcap: num(Q.marketCap),
     eps: num(Q.eps),
@@ -158,6 +162,7 @@ async function fetchUS(ticker) {
     ret3m: null,
     name: Q.name || ticker,
     _raw_market: 'US',
+    _debug: { quote_keys: Object.keys(Q), ratios_keys: Object.keys(R) }, // 필드명 확인용
   };
 }
 
