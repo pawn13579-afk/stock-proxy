@@ -227,6 +227,7 @@ async function fetchKR(code) {
   // 8) Yahoo 보강: 베타(코스피지수 대비)·목표가(KIS에 없을 때)
   let beta = null;
   let _yfKR = false;
+  let _yfKRdbg = null;
   try {
     const ySym = await krYahooSymbol(code);
     if (ySym) {
@@ -236,8 +237,14 @@ async function fetchKR(code) {
       ]);
       if (bt != null) { beta = bt; _yfKR = true; }
       if (tg != null && target == null) { target = tg; _yfKR = true; }
+      _yfKRdbg = { ySym, beta: bt, target: tg };
+    } else {
+      // 심볼 탐색 실패 진단: .KS / .KQ 각각 종가 개수
+      const ks = await yfChartCloses(code + '.KS', '5d');
+      const kq = await yfChartCloses(code + '.KQ', '5d');
+      _yfKRdbg = { ySym: null, ksLen: ks ? ks.length : null, kqLen: kq ? kq.length : null, code };
     }
-  } catch (e) {}
+  } catch (e) { _yfKRdbg = { err: String(e) }; }
 
   return {
     price: num(o.stck_prpr),
@@ -265,6 +272,7 @@ async function fetchKR(code) {
     name: o.hts_kor_isnm || code,
     _raw_market: 'KR',
     _src_api: 'KIS' + (_yfKR ? '+YF' : ''),
+    _yfKRdbg: _yfKRdbg,
     _period: { fr: fr.stac_yymm, gr: gr.stac_yymm, inc: annual.stac_yymm },
   };
 }
