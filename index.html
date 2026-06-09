@@ -180,7 +180,10 @@ function rarScore(h){ // 베타 우선, 없으면 52주 변동폭
   if(HOLD.some(x=>x.beta!=null))return pct(x=>x.beta,+1,h);
   return pct(volRange,+1,h);
 }
-function flowScore(h){if(h.noflow)return null;const f=[h.frn,h.inst].filter(x=>x!=null);if(!f.length)return null;const net=f.reduce((a,b)=>a+b,0)/f.length;return 5.5-net*4.5;}
+function flowScore(h){if(h.noflow)return null;
+  // API 수급 강도(순매수÷거래량 %)가 있으면 강도까지 반영. 순매수↑=매도후순위(낮은점수), 순매도↑=매도우선(높은점수)
+  if(h.flowRaw!=null){const x=Math.max(-3,Math.min(3,h.flowRaw));return 5.5-(x/3)*4.5;}
+  const f=[h.frn,h.inst].filter(x=>x!=null);if(!f.length)return null;const net=f.reduce((a,b)=>a+b,0)/f.length;return 5.5-net*4.5;}
 function concScore(h){const p=evalManwon(h)/totalEval()*100;return Math.max(1,Math.min(10,2+(p/15)*8));}
 function taxScore(h){if(h.mkt==='US'&&h.ret<0)return Math.min(10,4+Math.abs(h.ret)/10);if(h.mkt==='US'&&h.ret>0)return 2;return 1;}
 function sellScore(h){
@@ -214,6 +217,8 @@ async function fillAll(){
       if(d&&!d.error){
         ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
         if(d.price!=null)h.px=d.price;
+        // 수급 자동: 외인+기관 순매수÷거래량(%) → 매수(+1)/매도(-1) 방향. 한국주만.
+        if(h.mkt==='KR'&&d.flow!=null){const dir=d.flow>0?1:d.flow<0?-1:null;h.frn=dir;h.inst=dir;h.flowRaw=d.flow;}
         h._src=1; ok++;
       }else fail++;
     }catch(e){fail++;}
