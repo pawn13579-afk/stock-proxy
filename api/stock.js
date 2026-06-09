@@ -452,6 +452,7 @@ async function fetchUS_SEC(ticker, mcap, debug) {
 //      거래소를 모를 때 NAS→NYS→AMS 순서로 자동 탐색
 async function fetchUS_KIS(ticker) {
   const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
+  const pos = (v) => { const n = num(v); return (n != null && n !== 0) ? n : null; }; // 0=데이터없음 → null
   const excds = ['NAS', 'NYS', 'AMS'];
   for (const excd of excds) {
     try {
@@ -465,21 +466,21 @@ async function fetchUS_KIS(ticker) {
       if (last && last > 0) {
         return {
           price: last,
-          per: num(o.perx),
-          pbr: num(o.pbrx),
+          per: pos(o.perx),
+          pbr: pos(o.pbrx),
           psr: null,
           roe: null,
           opMargin: null,
           debtRatio: null,
           revGrowth: null,
           opGrowth: null,
-          lo52: num(o.l52p),
-          hi52: num(o.h52p),
+          lo52: pos(o.l52p),
+          hi52: pos(o.h52p),
           beta: null,
           target: null,
-          mcap: num(o.tomv),
-          eps: num(o.epsx),
-          bps: num(o.bpsx),
+          mcap: pos(o.tomv),
+          eps: pos(o.epsx),
+          bps: pos(o.bpsx),
           ret3m: null,
           name: ticker,
           _raw_market: 'US',
