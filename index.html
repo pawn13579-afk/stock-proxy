@@ -55,6 +55,38 @@
   .histtbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
   .histtbl .num{text-align:right;font-family:'Spline Sans Mono'}
   .histtbl th.num{text-align:right}
+  tr.toprank{background:rgba(232,97,90,.07)}
+  tr.toprank .rank{color:var(--neg);font-weight:700}
+  .detailrow td{background:var(--panel2);padding:0}
+  .detailbox{padding:16px 20px}
+  .detailbox h4{margin:0 0 10px;font-size:14px}
+  .dfactors{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px}
+  .dfac{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .dfac .fl{font-size:11px;color:var(--dim);margin-bottom:4px}
+  .dfac .fv{font-family:'Spline Sans Mono';font-size:18px;font-weight:600}
+  .dfac .fw{font-size:10px;color:var(--faint);margin-top:2px}
+  .dbar{height:6px;background:var(--panel2);border-radius:3px;margin-top:6px;overflow:hidden}
+  .dbarf{height:100%;border-radius:3px}
+  .tblctl{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:10px;font-size:11px}
+  .tcg{display:flex;align-items:center;gap:5px}
+  .tcg b{color:var(--dim);font-weight:500;margin-right:2px}
+  .fbtn{background:var(--panel2);border:1px solid var(--line);color:var(--dim);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer}
+  .fbtn:hover{color:var(--fg)}
+  .fbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  table.coreonly th:nth-child(n+6):nth-child(-n+24),table.coreonly td:nth-child(n+6):nth-child(-n+24){display:none}
+  th.sortable{cursor:pointer} th.sortable:hover{color:var(--fg)}
+  @media (max-width:760px){
+    header h1{font-size:18px} .sub,.warnbar{font-size:11px}
+    .controls{gap:6px} .summary{grid-template-columns:repeat(2,1fr)}
+    .charts{grid-template-columns:1fr} .chcard.wide{grid-column:span 1}
+    .topll{grid-template-columns:1fr}
+    /* 모바일: 자동으로 핵심 컬럼만 (가로 스크롤 최소화) */
+    table th:nth-child(n+6):nth-child(-n+24),table td:nth-child(n+6):nth-child(-n+24){display:none}
+    table.showall th:nth-child(n+6):nth-child(-n+24),table.showall td:nth-child(n+6):nth-child(-n+24){display:table-cell}
+    .histtbl th:nth-child(6),.histtbl td:nth-child(6){display:none}
+    .tblctl{font-size:10px;gap:10px}
+    .card .v{font-size:17px}
+  }
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
   .card .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
   .card .v{font-family:'Spline Sans Mono';font-size:20px;font-weight:600;margin-top:4px}
@@ -149,14 +181,38 @@
     <span><span class="dot" style="background:var(--neg)"></span>매도신호 높음(먼저)</span>
     <span><span class="dot" style="background:var(--pos)"></span>낮음(보유)</span>
   </div>
+  <div class="tblctl">
+    <span class="tcg"><b>시장</b>
+      <button class="fbtn" id="fm-all" onclick="setFilterMkt('all')">전체</button>
+      <button class="fbtn" id="fm-US" onclick="setFilterMkt('US')">미국</button>
+      <button class="fbtn" id="fm-KR" onclick="setFilterMkt('KR')">한국</button>
+      <button class="fbtn" id="fm-COIN" onclick="setFilterMkt('COIN')">코인</button>
+    </span>
+    <span class="tcg"><b>손익</b>
+      <button class="fbtn" id="fp-all" onclick="setFilterPL('all')">전체</button>
+      <button class="fbtn" id="fp-win" onclick="setFilterPL('win')">수익</button>
+      <button class="fbtn" id="fp-loss" onclick="setFilterPL('loss')">손실</button>
+    </span>
+    <span class="tcg"><b>정렬</b>
+      <select id="sortSel" onchange="setSort(this.value)" style="font-size:11px">
+        <option value="signal">매도신호</option><option value="eval">평가액</option><option value="ret">수익률</option>
+        <option value="per">PER</option><option value="beta">베타</option><option value="target">기대수익</option><option value="ret3m">3개월</option>
+      </select>
+      <button class="fbtn" onclick="SORT_DIR=-SORT_DIR;render()" title="오름/내림 전환">↕</button>
+    </span>
+    <span class="tcg"><b>컬럼</b>
+      <button class="fbtn" id="cm-all" onclick="setColMode('all')">전체</button>
+      <button class="fbtn" id="cm-core" onclick="setColMode('core')">핵심만</button>
+    </span>
+  </div>
   <div class="topscroll" id="topscroll"><div class="topscroll-inner"></div></div>
   <div class="tablewrap" id="tablewrap"><table id="tbl"><thead><tr>
     <th class="l" title="매도 우선순위">#</th>
     <th class="l" title="종목·등급·⚑·계좌·API심볼">종목 / 등급 / ⚑ / 계좌·심볼</th>
-    <th title="평가금액 합산(만원)">평가</th>
-    <th title="가중평균 수익률%">수익%</th>
-    <th title="현재가(API 자동 또는 입력)">현재가</th>
-    <th title="[API] PER">PER</th>
+    <th class="sortable" title="평가금액 합산(만원) · 클릭 정렬" onclick="setSort('eval')">평가 ⇅</th>
+    <th class="sortable" title="수익률% · 클릭 정렬" onclick="setSort('ret')">수익% ⇅</th>
+    <th class="sortable" title="현재가 · 클릭 정렬" onclick="setSort('px')">현재가 ⇅</th>
+    <th class="sortable" title="PER · 클릭 정렬" onclick="setSort('per')">PER ⇅</th>
     <th title="[API] PBR">PBR</th>
     <th title="[API] PSR">PSR</th>
     <th title="[API] ROE %">ROE</th>
@@ -175,7 +231,7 @@
     <th title="기관 순매수(국내만)">기관</th>
     <th title="[자동] 기대수익=목표가÷현재가-1">기대R</th>
     <th title="[자동] 52주 위치">52위치</th>
-    <th title="[자동] 매도 우선도 = 기대수익(밸류·성장·수익성·목표가)·분산기여·변동성·집중도·세금 종합. 높을수록 먼저 매도. 아래 매도플랜과 동일 기준. 마우스 올리면 인자 분해">매도신호</th>
+    <th title="[자동] 매도 우선도 = 기대수익(밸류·성장·수익성·목표가)·분산기여·변동성·집중도·세금 종합. 높을수록 먼저 매도. 아래 매도플랜과 동일 기준. 마우스 올리면 인자 분해" class="sortable" onclick="setSort('signal')">매도신호 ⇅</th>
   </tr></thead><tbody id="tbody"></tbody></table></div>
   <div class="srcnote">⚑ = 종목 관련 이벤트(직접 입력). 데이터는 KIS·SEC·Yahoo·Upbit에서 자동 수집됩니다. <b>매입단가는 미국주=달러($), 한국주·코인=원(₩)</b>으로 입력하세요(현재가와 같은 단위). ⚠️ 변동성 큰 장에서는 매도 당일 [API 자동채우기]로 현재가·목표가를 다시 받는 것을 권장합니다.</div>
   <div class="plan" id="plans"></div>
@@ -217,7 +273,8 @@ let HOLD=[{"n": "CRCL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 10
 let W={ER:0.18,VAL:0.15,GROWTH:0.13,PROFIT:0.12,MOM:0.12,CONC:0.12,RAR:0.08,FLOW:0.06,TAX:0.04};
 let PROXY='';
 let SOLD=[]; // 매도 이력: {date, n, mkt, acct, qty, price, avg, gain(만원), taxable}
-try{const s=localStorage.getItem('sellToolV8');if(s){const d=JSON.parse(s);if(d.HOLD)HOLD=d.HOLD;if(d.W)W=d.W;if(d.PROXY)PROXY=d.PROXY;if(d.SOLD)SOLD=d.SOLD;}}catch(e){}
+let LASTFILL=null; // 마지막 자동채우기 시각(ISO)
+try{const s=localStorage.getItem('sellToolV8');if(s){const d=JSON.parse(s);if(d.HOLD)HOLD=d.HOLD;if(d.W)W=d.W;if(d.PROXY)PROXY=d.PROXY;if(d.SOLD)SOLD=d.SOLD;if(d.LASTFILL)LASTFILL=d.LASTFILL;}}catch(e){}
 function fx(){return parseFloat(document.getElementById('fx').value)||1559;}
 // ===== 매입단가 기반 자동 계산 =====
 // lot = {acct, qty(수량), avg(매입단가)}. 평가·수익률·차익을 현재가(px)에서 자동 산출.
@@ -436,17 +493,31 @@ async function fillAll(){
     }
   }
   st.textContent='완료: '+ok+'종목 채움'+(fail?(', '+fail+'개 실패(코드없음/ETF/비트코인 등)'):'');
+  LASTFILL=new Date().toISOString();
   saveData();
 }
 function render(){
   const tb=document.getElementById('tbody');tb.innerHTML='';
-  // 테이블 순위 = 매도플랜과 동일 기준(매도신호: 기대수익 낮을수록 높음). 9축 종합점수는 툴팁 참고용.
-  const scored=HOLD.map((h,i)=>{const r=sellPriority(h);const fullAxes=['ER','DIV','VOL','CONC','TAX'].filter(k=>{const p=r.parts[k];return p!=null&&(k!=='ER'||expRet(h)!=null);}).length;return {h,i,score:r?r.score:null,parts:r?r.parts:null,hasER:expRet(h)!=null};});
-  scored.sort((a,b)=>{if(a.score==null&&b.score==null)return 0;if(a.score==null)return 1;if(b.score==null)return -1;return b.score-a.score;});
+  let scored=HOLD.map((h,i)=>{const r=sellPriority(h);return {h,i,score:r?r.score:null,parts:r?r.parts:null,hasER:expRet(h)!=null};});
+  // 필터: 시장
+  if(FILTER_MKT!=='all')scored=scored.filter(row=>row.h.mkt===FILTER_MKT);
+  // 필터: 손익
+  if(FILTER_PL!=='all')scored=scored.filter(row=>{const g=gainManwon(row.h);return FILTER_PL==='win'?g>0:g<0;});
+  // 정렬
+  const getv=(row,key)=>{const h=row.h;switch(key){
+    case 'signal':return row.score; case 'eval':return evalManwon(h); case 'ret':return retPct(h);
+    case 'px':return price(h); case 'per':return h.per; case 'pbr':return h.pbr; case 'psr':return h.psr;
+    case 'roe':return h.roe; case 'beta':return h.beta; case 'target':return expRet(h);
+    case 'ret3m':return h.ret3m; default:return row.score;}};
+  scored.sort((a,b)=>{const va=getv(a,SORT_KEY),vb=getv(b,SORT_KEY);
+    if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;return (va-vb)*SORT_DIR;});
   scored.forEach((row,rank)=>{
     const h=row.h,i=row.i,sc=row.score,pr=price(h),er=expRet(h),ps=pos52(h);
     let scC='var(--faint)';if(sc!=null){scC=sc>=7.5?'var(--neg)':sc>=6?'var(--warn)':'var(--pos)';}
     const tr=document.createElement('tr');
+    if(sc!=null&&rank<3)tr.className='toprank';
+    tr.style.cursor='pointer';
+    tr.onclick=function(ev){if(ev.target.tagName==='INPUT'||ev.target.tagName==='SELECT'||ev.target.classList.contains('del'))return;toggleDetail(i);};
     tr.innerHTML=
       '<td class="l rank">'+(sc!=null?(rank+1):'·')+'</td>'+
       '<td class="l name">'+h.n+' '+rateBadge(h.rating)+(h.event?' <span title="'+h.event+'" style="cursor:help;color:var(--warn)">⚑</span>':'')+' <span class="del" title="이 종목 삭제" onclick="delStock('+i+')">×</span><div style="font-size:9.5px;color:var(--faint)">'+acctStr(h)+' · <input class="symin" value="'+(h.apiSym||'')+'" placeholder="'+(h.mkt==='US'?'티커':h.mkt==='KR'?'6자리코드':'-')+'" onchange="updCode('+i+',this.value)"></div></td>'+
@@ -474,8 +545,9 @@ function render(){
       '<td class="num" style="color:var(--faint)">'+(ps!=null?(ps*100).toFixed(0)+'%':'—')+'</td>'+
       '<td><span class="score" style="background:'+scC+'22;color:'+scC+'" title="'+(sc!=null?scoreTooltip(row.parts,row.hasER).replace(/"/g,'&quot;'):'')+'">'+(sc!=null?sc.toFixed(1)+(!row.hasER?' <span style="font-size:8px;color:var(--warn)">(목표가x)</span>':''):'-')+'</span></td>';
     tb.appendChild(tr);
+    if(OPEN_DETAIL===i){const dr=document.createElement('tbody');dr.innerHTML=detailRowHTML(h,25);if(dr.firstChild)tb.appendChild(dr.firstChild);}
   });
-  renderSummary();renderPlans(scored);renderHistory();
+  renderSummary();renderPlans(scored);renderHistory();updateFilterBtns();
 }
 // 도넛 차트 SVG 생성 (data: [{label,value,color}])
 function donutSVG(data,size,cx,cy,r,rin){
@@ -556,6 +628,44 @@ function delSold(idx){
   const ug=document.getElementById('usGainYTD'); if(ug)ug.value=Math.round(realizedUSGainThisYear());
   render();saveData();
 }
+// ===== 종목 상세 패널 (C단계): 행 클릭 시 6인자 분해 펼침 =====
+let OPEN_DETAIL=null;
+let SORT_KEY='signal', SORT_DIR=-1; // 기본: 매도신호 내림차순
+let FILTER_MKT='all', FILTER_PL='all'; // 시장·손익 필터
+function toggleDetail(i){OPEN_DETAIL=(OPEN_DETAIL===i)?null:i;render();}
+function setSort(key){if(SORT_KEY===key){SORT_DIR=-SORT_DIR;}else{SORT_KEY=key;SORT_DIR=(key==='signal')?-1:-1;}render();}
+function setFilterMkt(m){FILTER_MKT=m;render();}
+function setFilterPL(p){FILTER_PL=p;render();}
+let COL_MODE='all';
+function setColMode(m){COL_MODE=m;document.getElementById('tbl').classList.toggle('coreonly',m==='core');updateFilterBtns();}
+function updateFilterBtns(){
+  ['all','US','KR','COIN'].forEach(m=>{const b=document.getElementById('fm-'+m);if(b)b.classList.toggle('on',FILTER_MKT===m);});
+  ['all','win','loss'].forEach(p=>{const b=document.getElementById('fp-'+p);if(b)b.classList.toggle('on',FILTER_PL===p);});
+  ['all','core'].forEach(c=>{const b=document.getElementById('cm-'+c);if(b)b.classList.toggle('on',COL_MODE===c);});
+  const ss=document.getElementById('sortSel');if(ss)ss.value=SORT_KEY;
+}
+function detailRowHTML(h,colspan){
+  const r=sellPriority(h); if(!r)return '';
+  const names={ER:'기대수익',DIV:'분산기여',VOL:'변동성',MOM:'모멘텀',CONC:'집중도',TAX:'세금효율'};
+  const desc={ER:'밸류·성장·수익성·목표가',DIV:sectorOf(h)+' 섹터 쏠림',VOL:'베타·변동폭',MOM:'추세·수급',CONC:'개별 비중',TAX:h.mkt==='US'?'양도세 영향':'비과세'};
+  let facs='';
+  for(const k of ['ER','DIV','VOL','MOM','CONC','TAX']){
+    const v=r.parts[k], w=FW[k];
+    const col=v==null?'var(--faint)':v>=7.5?'var(--neg)':v>=6?'var(--warn)':v>=4?'var(--dim)':'var(--pos)';
+    facs+='<div class="dfac"><div class="fl">'+names[k]+' <span style="color:var(--faint)">'+(w*100).toFixed(0)+'%</span></div>'+
+      '<div class="fv" style="color:'+col+'">'+(v==null?'중립':v.toFixed(1))+'</div>'+
+      '<div class="dbar"><div class="dbarf" style="width:'+((v==null?5.5:v)*10)+'%;background:'+col+'"></div></div>'+
+      '<div class="fw">'+desc[k]+'</div></div>';
+  }
+  const evM=evalManwon(h), rp=retPct(h), gM=gainManwon(h);
+  let info='평가 '+evM.toFixed(0)+'만 · 수익률 '+(rp==null?'-':(rp>0?'+':'')+rp.toFixed(1)+'%')+' · 평가손익 '+(gM>=0?'+':'')+gM.toFixed(0)+'만';
+  if(h.event)info+=' · ⚑ '+h.event;
+  return '<tr class="detailrow"><td colspan="'+colspan+'"><div class="detailbox">'+
+    '<h4>'+h.n+' — 매도 우선도 '+r.score.toFixed(2)+' (6인자 분해)</h4>'+
+    '<div class="dfactors">'+facs+'</div>'+
+    '<div style="font-size:12px;color:var(--dim)">'+info+'</div>'+
+    '</div></td></tr>';
+}
 function renderHistory(){
   const el=document.getElementById('history'); if(!el)return;
   if(!SOLD.length){el.innerHTML='<div style="color:var(--faint);font-size:12px;padding:8px 0">아직 매도 기록이 없습니다. [매도 기록]으로 실제 매도를 입력하면 여기에 누적되고, 보유 수량·실현손익이 자동 반영됩니다.</div>';return;}
@@ -577,6 +687,16 @@ function renderHistory(){
   el.innerHTML=html;
 }
 
+function freshLabel(){
+  if(!LASTFILL)return '<span style="color:var(--warn)">⚠ 아직 자동채우기 안 함 — 현재가가 비어있을 수 있습니다</span>';
+  const diff=Date.now()-new Date(LASTFILL).getTime();
+  const min=Math.floor(diff/60000), hr=Math.floor(min/60), day=Math.floor(hr/24);
+  let ago= day>0?day+'일 전': hr>0?hr+'시간 전': min>0?min+'분 전':'방금';
+  const d=new Date(LASTFILL);
+  const hhmm=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);
+  const stale= hr>=6; // 6시간 넘으면 경고색
+  return '<span style="color:'+(stale?'var(--warn)':'var(--faint)')+'">🕒 마지막 자동채우기 '+hhmm+' ('+ago+')'+(stale?' — 오래됨, 갱신 권장':'')+'</span>';
+}
 function renderSummary(){
   const tot=totalEval();
   const us=HOLD.filter(h=>h.mkt==='US').reduce((s,h)=>s+evalManwon(h),0);
@@ -593,7 +713,8 @@ function renderSummary(){
   const gc=totGain>=0?'var(--pos)':'var(--neg)';
 
   // === 숫자 현황 (원금·평가·손익) ===
-  let html='<div class="summary">'+
+  let html='<div style="font-size:11px;margin-bottom:10px">'+freshLabel()+'</div>'+
+    '<div class="summary">'+
     '<div class="card"><div class="k">총 매수액(원금)</div><div class="v num">'+(totCost/10000).toFixed(2)+'억</div><div class="ks">내가 투입한 돈</div></div>'+
     '<div class="card"><div class="k">총 평가액</div><div class="v num">'+(tot/10000).toFixed(2)+'억</div><div class="ks">미국 '+(us/10000).toFixed(1)+'억·국내 '+(kr/10000).toFixed(1)+'억·코인 '+coin.toFixed(0)+'만</div></div>'+
     '<div class="card"><div class="k">총 평가손익 (미실현)</div><div class="v num" style="color:'+gc+'">'+(totGain>=0?'+':'')+(totGain/10000).toFixed(2)+'억</div><div class="ks" style="color:'+gc+'">'+(totRet>=0?'+':'')+totRet.toFixed(1)+'%</div></div>'+
@@ -760,7 +881,7 @@ function addStock(){
 }
 function delStock(i){if(confirm('['+HOLD[i].n+'] 삭제할까요?')){HOLD.splice(i,1);render();saveData();}}
 function recalc(){render();saveData();}
-function saveData(){try{localStorage.setItem('sellToolV8',JSON.stringify({HOLD,W,PROXY,SOLD}));}catch(e){}}
+function saveData(){try{localStorage.setItem('sellToolV8',JSON.stringify({HOLD,W,PROXY,SOLD,LASTFILL}));}catch(e){}}
 function resetData(){if(confirm('입력값 초기화?')){localStorage.removeItem('sellToolV8');location.reload();}}
 function exportData(){const blob=new Blob([JSON.stringify({HOLD,W,PROXY,SOLD},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='매도도구_백업_'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);}
 function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=JSON.parse(ev.target.result);if(d.HOLD&&Array.isArray(d.HOLD)){HOLD=d.HOLD;}if(d.W)W=d.W;if(d.SOLD)SOLD=d.SOLD;if(d.PROXY){PROXY=d.PROXY;const e2=document.getElementById('proxyUrl');if(e2)e2.value=PROXY;}saveData();render();renderWeights();alert('복원 완료 ('+HOLD.length+'종목, 매도이력 '+SOLD.length+'건)');}catch(err){alert('실패: '+err.message);}};r.readAsText(f);}
