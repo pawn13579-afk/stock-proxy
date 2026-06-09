@@ -38,8 +38,11 @@ async function getKisToken() {
   return kisToken;
 }
 
-// ---- KIS 공통 GET 헬퍼 ----
-async function kisGet(path, params, trId) {
+// ---- 지연 헬퍼 ----
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ---- KIS 공통 GET 헬퍼 (rate limit 대응: 실패 시 지연 후 1회 재시도) ----
+async function kisGet(path, params, trId, retry = true) {
   const token = await getKisToken();
   const qs = new URLSearchParams(params).toString();
   const res = await fetch('https://openapi.koreainvestment.com:9443' + path + '?' + qs, {
@@ -49,10 +52,18 @@ async function kisGet(path, params, trId) {
       appkey: process.env.KIS_APPKEY,
       appsecret: process.env.KIS_APPSECRET,
       tr_id: trId,
-      custtype: 'P', // 개인
+      custtype: 'P',
     },
   });
-  return res.json();
+  const data = await res.json();
+  // rate limit(초당 제한)이나 빈 output이면 잠시 쉬고 1회 재시도
+  const emptyOut = !data.output || (Array.isArray(data.output) && data.output.length === 0);
+  const rateLimited = data.msg_cd === 'EGW00201' || data.rt_cd === '1';
+  if ((emptyOut || rateLimited) && retry) {
+    await sleep(350);
+    return kisGet(path, params, trId, false);
+  }
+  return data;
 }
 
 // ---- 한국주식: 시세 + 재무비율 통합 ----
@@ -87,6 +98,7 @@ async function fetchKR(code) {
   // 3) 성장성비율: 매출성장·영익성장 — 0(년), 12월 연간 행 선택
   let gr = {};
   try {
+    await sleep(150);
     const g = await kisGet(
       '/uapi/domestic-stock/v1/finance/growth-ratio',
       { fid_input_iscd: code, fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J' },
@@ -98,12 +110,22 @@ async function fetchKR(code) {
   // 4) 손익계산서: 0(년), 12월 연간 행 선택 → 영업이익률·PSR 계산
   let incRows = [];
   try {
-    const ic = await kisGet(
+    await sleep(150); // 직전 호출과 간격
+    let ic = await kisGet(
       '/uapi/domestic-stock/v1/finance/income-statement',
       { fid_input_iscd: code, fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J' },
       'FHKST66430200'
     );
     incRows = Array.isArray(ic.output) ? ic.output : [];
+    if (!incRows.length) { // 그래도 비면 한 번 더
+      await sleep(400);
+      ic = await kisGet(
+        '/uapi/domestic-stock/v1/finance/income-statement',
+        { fid_input_iscd: code, fid_div_cls_code: '0', fid_cond_mrkt_div_code: 'J' },
+        'FHKST66430200', false
+      );
+      incRows = Array.isArray(ic.output) ? ic.output : [];
+    }
   } catch (e) {}
   const annual = pickAnnual(incRows);
   const sale = num(annual.sale_account);
