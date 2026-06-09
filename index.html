@@ -482,6 +482,10 @@ function renderSummary(){
   const totGain=tot-totCost;
   const totRet=totCost>0?(totGain/totCost*100):0;
   const usGain=HOLD.filter(h=>h.mkt==='US').reduce((s,h)=>s+gainManwon(h),0);
+  const krGain=HOLD.filter(h=>h.mkt==='KR').reduce((s,h)=>s+gainManwon(h),0);
+  const coinGain=HOLD.filter(h=>h.mkt==='COIN').reduce((s,h)=>s+gainManwon(h),0);
+  const gsign=(v)=>(v>=0?'+':'')+v.toFixed(0)+'만';
+  const gcol=(v)=>v>=0?'var(--pos)':'var(--neg)';
   const gc=totGain>=0?'var(--pos)':'var(--neg)';
 
   // === 숫자 현황 (원금·평가·손익) ===
@@ -490,7 +494,7 @@ function renderSummary(){
     '<div class="card"><div class="k">총 평가액</div><div class="v num">'+(tot/10000).toFixed(2)+'억</div><div class="ks">미국 '+(us/10000).toFixed(1)+'억·국내 '+(kr/10000).toFixed(1)+'억·코인 '+coin.toFixed(0)+'만</div></div>'+
     '<div class="card"><div class="k">총 평가손익 (미실현)</div><div class="v num" style="color:'+gc+'">'+(totGain>=0?'+':'')+(totGain/10000).toFixed(2)+'억</div><div class="ks" style="color:'+gc+'">'+(totRet>=0?'+':'')+totRet.toFixed(1)+'%</div></div>'+
     '<div class="card"><div class="k">실현손익 (누적)</div><div class="v num" style="color:var(--faint)">0만</div><div class="ks">매도 이력 기능 추가 시 자동 집계</div></div>'+
-    '<div class="card"><div class="k">미국주 미실현차익</div><div class="v num">'+usGain.toFixed(0)+'만</div><div class="ks">양도세 대상·연250만 공제</div></div>'+
+    '<div class="card"><div class="k">미실현 손익 (시장별)</div><div class="v" style="font-size:13px;line-height:1.6"><span style="color:'+gcol(usGain)+'">미국 '+gsign(usGain)+'</span> <span style="font-size:9px;color:var(--faint)">양도세대상</span><br><span style="color:'+gcol(krGain)+'">한국 '+gsign(krGain)+'</span> <span style="font-size:9px;color:var(--faint)">비과세</span><br><span style="color:'+gcol(coinGain)+'">코인 '+gsign(coinGain)+'</span> <span style="font-size:9px;color:var(--faint)">비과세</span></div></div>'+
     '</div>';
 
   // === 차트 영역 ===
