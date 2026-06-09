@@ -1,8 +1,11 @@
-// Vercel 서버리스 프록시: 한국(KIS)·미국(FMP) 주식 데이터 통합
+// Vercel 서버리스 프록시: 한국·미국 주식 데이터 통합 (전부 무료 소스)
 // 브라우저 CORS 우회 + API 키를 서버에 숨김 + KIS 토큰 캐싱
 //
+// 데이터 출처:
+//   한국주: KIS(한국투자증권) — 시세·재무비율·목표가·수급
+//   미국주: KIS 해외(시세·PER·PBR·시총) + SEC EDGAR(재무비율) + Yahoo(베타·목표가·3개월) — 전부 무료
+//
 // 환경변수(Vercel 대시보드 Settings > Environment Variables에 등록):
-//   FMP_KEY        = Financial Modeling Prep 무료 API 키
 //   KIS_APPKEY     = 한국투자증권 App Key (36자리)
 //   KIS_APPSECRET  = 한국투자증권 App Secret (180자리)
 //
@@ -445,7 +448,7 @@ async function fetchUS_SEC(ticker, mcap, debug) {
   return out;
 }
 
-// ---- 미국주식 KIS 폴백: FMP 무료키에서 막힌 종목용 (현재가·PER·PBR·EPS·52주·시총) ----
+// ---- 미국주식 KIS 해외: 현재가·PER·PBR·EPS·BPS·52주·시총 (NAS→NYS→AMS 자동탐색) ----
 //      거래소를 모를 때 NAS→NYS→AMS 순서로 자동 탐색
 async function fetchUS_KIS(ticker) {
   const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
@@ -489,140 +492,47 @@ async function fetchUS_KIS(ticker) {
   return null;
 }
 
-// ---- 미국주식: FMP 신규 /stable/ 경로 (2025.9 이후) ----
+// ---- 미국주식: KIS(시세) + SEC EDGAR(재무) + Yahoo(목표가·베타·3개월) — 전부 무료 ----
 async function fetchUS(ticker, debug) {
-  const key = process.env.FMP_KEY;
-  const base = 'https://financialmodelingprep.com/stable';
-  const num = (v) => (v === undefined || v === '' || v === null ? null : parseFloat(v));
-  const _dbg = {};
-  let fmpBlocked = false; // FMP가 Premium 거부했는지
-
-  // 1) quote: 현재가·시총·PER·EPS·52주
-  let Q = {};
-  try {
-    const resp = await fetch(`${base}/quote?symbol=${ticker}&apikey=${key}`);
-    const txt = await resp.text();
-    if (debug) _dbg.quoteRaw = txt.slice(0, 300);
-    if (txt.includes('Premium') || txt.includes('not available') || txt.includes('Limit Reach') || txt.includes('Error Message')) fmpBlocked = true;
-    let q; try { q = JSON.parse(txt); } catch { q = null; }
-    Q = Array.isArray(q) && q[0] ? q[0] : (q && q.symbol ? q : {});
-  } catch (e) { if (debug) _dbg.quoteErr = String(e); }
-
-  // FMP가 이 종목을 막았으면(Premium) → KIS 해외(시세·PER·PBR·시총) + SEC EDGAR(재무비율) 병합
-  if (fmpBlocked || Q.price == null) {
-    const kis = await fetchUS_KIS(ticker);
-    if (kis) {
-      // SEC EDGAR로 ROE·영익률·부채비율·성장률·PSR 보강 (시총은 KIS 값 사용)
-      try {
-        const sec = await fetchUS_SEC(ticker, kis.mcap, debug);
-        if (sec) {
-          if (sec.opMargin != null) kis.opMargin = sec.opMargin;
-          if (sec.roe != null) kis.roe = sec.roe;
-          if (sec.debtRatio != null) kis.debtRatio = sec.debtRatio;
-          if (sec.revGrowth != null) kis.revGrowth = sec.revGrowth;
-          if (sec.opGrowth != null) kis.opGrowth = sec.opGrowth;
-          if (sec.psr != null) kis.psr = sec.psr;
-          kis._src_api = (kis._src_api || 'KIS') + '+SEC';
-          if (debug) kis._sec = { used: sec._sec_used, period: sec._sec_period, dbg: sec._sec_dbg };
-        }
-      } catch (e) {}
-      // 베타·목표가·3개월수익률을 Yahoo 무료로 보강 (빈 곳 없애기)
-      try {
-        const [bt, tg, st] = await Promise.all([
-          kis.beta == null ? yfBeta(ticker) : null,
-          kis.target == null ? yfTarget(ticker) : null,
-          kis.ret3m == null ? yfChartCloses(ticker, '3mo') : null,
-        ]);
-        if (bt != null) { kis.beta = bt; kis._src_api += '+YF'; }
-        if (tg != null) { kis.target = tg; if (!kis._src_api.includes('YF')) kis._src_api += '+YF'; }
-        if (st && st.length > 1) { kis.ret3m = (st[st.length - 1] / st[0] - 1) * 100; if (!kis._src_api.includes('YF')) kis._src_api += '+YF'; }
-        if (debug) {
-          // 베타·목표가 실패 원인 진단
-          const sc = await yfChartCloses(ticker, '1y');
-          const spy = await yfChartCloses('SPY', '1y');
-          const gotCrumb = await yfGetCrumb();
-          let tgRaw = null;
-          try {
-            const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=financialData` + (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
-            const tr = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
-            tgRaw = (await tr.text()).slice(0, 200);
-          } catch (e) { tgRaw = 'ERR:' + String(e); }
-          kis._yf = { stockCloses: sc ? sc.length : null, spyCloses: spy ? spy.length : null, betaResult: bt, gotCrumb, crumb: _yfCrumb ? _yfCrumb.slice(0, 8) + '...' : null, targetRaw: tgRaw };
-        }
-      } catch (e) { if (debug) kis._yfErr = String(e); }
-      if (debug) kis._dbg = { ..._dbg, fallback: 'FMP blocked → KIS+SEC+YF' };
-      return kis;
-    }
-    // KIS도 실패하면 FMP 나머지라도 시도 (아래 계속)
+  // 1) KIS 해외: 현재가·PER·PBR·EPS·BPS·52주·시총 (NAS→NYS→AMS 자동탐색)
+  const base = await fetchUS_KIS(ticker);
+  if (!base) {
+    // KIS에서 못 찾으면(상장폐지·심볼오류 등) 최소한 Yahoo 시세라도
+    const closes = await yfChartCloses(ticker, '1y');
+    if (!closes || !closes.length) return { price: null, name: ticker, _raw_market: 'US', _src_api: 'none' };
+    return { price: closes[closes.length - 1], name: ticker, _raw_market: 'US', _src_api: 'YF-only' };
   }
 
-  // 2) ratios-ttm: PBR·PSR·ROE·영업이익률·부채비율
-  let R = {};
+  // 2) SEC EDGAR: PSR·ROE·영업이익률·부채비율·매출성장·영익성장 (시총은 KIS 값)
   try {
-    const resp = await fetch(`${base}/ratios-ttm?symbol=${ticker}&apikey=${key}`);
-    const txt = await resp.text();
-    if (debug) _dbg.ratiosRaw = txt.slice(0, 300);
-    let r; try { r = JSON.parse(txt); } catch { r = null; }
-    R = Array.isArray(r) && r[0] ? r[0] : (r && !r['Error Message'] ? r : {});
-  } catch (e) { if (debug) _dbg.ratiosErr = String(e); }
-
-  // 3) 애널리스트 목표가 컨센서스
-  let target = null;
-  try {
-    const t = await (await fetch(`${base}/price-target-consensus?symbol=${ticker}&apikey=${key}`)).json();
-    const T = Array.isArray(t) && t[0] ? t[0] : {};
-    target = num(T.targetConsensus) || num(T.targetMedian) || num(T.targetHigh);
+    const sec = await fetchUS_SEC(ticker, base.mcap, debug);
+    if (sec) {
+      if (sec.opMargin != null) base.opMargin = sec.opMargin;
+      if (sec.roe != null) base.roe = sec.roe;
+      if (sec.debtRatio != null) base.debtRatio = sec.debtRatio;
+      if (sec.revGrowth != null) base.revGrowth = sec.revGrowth;
+      if (sec.opGrowth != null) base.opGrowth = sec.opGrowth;
+      if (sec.psr != null) base.psr = sec.psr;
+      base._src_api += '+SEC';
+      if (debug) base._sec = { used: sec._sec_used, period: sec._sec_period };
+    }
   } catch (e) {}
 
-  // 4) profile: 베타
-  let beta = null;
+  // 3) Yahoo: 베타·목표가·3개월수익률
   try {
-    const p = await (await fetch(`${base}/profile?symbol=${ticker}&apikey=${key}`)).json();
-    const P = Array.isArray(p) && p[0] ? p[0] : (p && p.symbol ? p : {});
-    beta = num(P.beta);
+    const [bt, tg, st] = await Promise.all([
+      yfBeta(ticker),
+      yfTarget(ticker),
+      yfChartCloses(ticker, '3mo'),
+    ]);
+    let yfUsed = false;
+    if (bt != null) { base.beta = bt; yfUsed = true; }
+    if (tg != null) { base.target = tg; yfUsed = true; }
+    if (st && st.length > 1) { base.ret3m = (st[st.length - 1] / st[0] - 1) * 100; yfUsed = true; }
+    if (yfUsed) base._src_api += '+YF';
   } catch (e) {}
 
-  // 5) stock-price-change: 3개월 수익률(%)
-  let ret3m = null;
-  try {
-    const c = await (await fetch(`${base}/stock-price-change?symbol=${ticker}&apikey=${key}`)).json();
-    const C = Array.isArray(c) && c[0] ? c[0] : (c && c.symbol ? c : {});
-    ret3m = num(C['3M']);
-  } catch (e) {}
-
-  // 6) income-statement-growth: 최근 연도 매출·영익 성장률 (소수→%)
-  let revGrowth = null, opGrowth = null;
-  try {
-    const g = await (await fetch(`${base}/income-statement-growth?symbol=${ticker}&limit=1&apikey=${key}`)).json();
-    const G = Array.isArray(g) && g[0] ? g[0] : {};
-    if (G.growthRevenue != null) revGrowth = num(G.growthRevenue) * 100;
-    if (G.growthOperatingIncome != null) opGrowth = num(G.growthOperatingIncome) * 100;
-  } catch (e) {}
-
-  return {
-    price: num(Q.price),
-    per: num(R.priceToEarningsRatioTTM) || num(Q.pe) || num(Q.priceEarningsRatio),
-    pbr: num(R.priceToBookRatioTTM),
-    psr: num(R.priceToSalesRatioTTM),
-    // ROE는 이 엔드포인트에 직접 없음 → 주당순이익÷주당자본 ×100 으로 계산
-    roe: (R.netIncomePerShareTTM != null && R.shareholdersEquityPerShareTTM)
-         ? num(R.netIncomePerShareTTM) / num(R.shareholdersEquityPerShareTTM) * 100 : null,
-    opMargin: R.operatingProfitMarginTTM != null ? num(R.operatingProfitMarginTTM) * 100 : null,
-    debtRatio: R.debtToEquityRatioTTM != null ? num(R.debtToEquityRatioTTM) * 100 : null,
-    revGrowth: revGrowth,
-    opGrowth: opGrowth,
-    lo52: num(Q.yearLow),
-    hi52: num(Q.yearHigh),
-    beta: beta,
-    target: target,
-    mcap: num(Q.marketCap),
-    eps: num(R.netIncomePerShareTTM),
-    bps: num(R.bookValuePerShareTTM),
-    ret3m: ret3m,
-    name: Q.name || ticker,
-    _raw_market: 'US',
-    ...(debug ? { _dbg } : {}),
-  };
+  return base;
 }
 
 export default async function handler(req, res) {
