@@ -259,24 +259,40 @@ async function getCik(ticker) {
   return _cikMap[ticker.toUpperCase()] || null;
 }
 
-// companyfacts에서 한 개념(여러 후보 태그)의 연간(FY) 값들을 최신순으로
-function secAnnual(facts, tags, unit = 'USD') {
+// companyfacts에서 한 개념(여러 후보 태그)의 연간 값들을 최신순으로
+// frame에 의존하지 않고, 10-K이면서 기간이 약 1년(손익) 또는 시점값(재무상태표)인 것을 연간으로 인정
+function secAnnual(facts, tags, unit = 'USD', flow = true) {
   const gaap = (facts.facts && facts.facts['us-gaap']) || {};
+  const days = (s, e) => (new Date(e) - new Date(s)) / 86400000;
   for (const tag of tags) {
     const u = gaap[tag] && gaap[tag].units && gaap[tag].units[unit];
     if (!u || !u.length) continue;
-    // 연간(10-K, fp=FY) 우선, 중복 end는 최신 filed
-    const fy = u.filter(x => x.form === '10-K' && x.fp === 'FY' && x.frame);
-    const pool = fy.length ? fy : u.filter(x => x.form === '10-K');
+    let pool;
+    if (flow) {
+      // 손익(매출·이익): 10-K이고 start~end가 약 1년(335~395일)인 것 = 연간 전체
+      pool = u.filter(x => x.form === '10-K' && x.start && x.end && days(x.start, x.end) >= 335 && days(x.start, x.end) <= 395);
+    } else {
+      // 재무상태표(자본·부채): 시점값, 10-K
+      pool = u.filter(x => x.form === '10-K' && x.end);
+    }
+    if (!pool.length) pool = u.filter(x => x.form === '10-K');
     if (!pool.length) continue;
     const seen = {};
     for (const e of pool) {
       if (!seen[e.end] || e.filed > seen[e.end].filed) seen[e.end] = e;
     }
     const arr = Object.values(seen).sort((a, b) => b.end.localeCompare(a.end));
-    if (arr.length) return arr; // [{val,end,...}, ...] 최신순
+    if (arr.length) return arr; // [{val,end,start,...}, ...] 최신순
   }
   return [];
+}
+
+// 두 시계열에서 같은 회계연도(end 근접)끼리 매칭해 값 쌍 반환
+function matchByEnd(a, b, idxA = 0) {
+  if (!a[idxA]) return [null, null];
+  const endA = a[idxA].end;
+  const match = b.find(x => Math.abs((new Date(x.end) - new Date(endA)) / 86400000) <= 20);
+  return [a[idxA].val, match ? match.val : null];
 }
 
 async function fetchUS_SEC(ticker, mcap) {
@@ -290,40 +306,44 @@ async function fetchUS_SEC(ticker, mcap) {
     facts = await r.json();
   } catch (e) { return null; }
 
-  // 후보 태그(회사마다 다름)
-  const rev = secAnnual(facts, ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'SalesRevenueGoodsNet']);
-  const op = secAnnual(facts, ['OperatingIncomeLoss']);
-  const ni = secAnnual(facts, ['NetIncomeLoss', 'ProfitLoss']);
-  const eq = secAnnual(facts, ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest']);
-  // 부채비율용 총부채: Liabilities 우선, 없으면 자산-자본 또는 유동+비유동
-  let liabVal = null;
+  // 후보 태그(회사마다 다름). 손익=flow(기간), 재무상태표=시점
+  const rev = secAnnual(facts, ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'SalesRevenueGoodsNet'], 'USD', true);
+  const op = secAnnual(facts, ['OperatingIncomeLoss'], 'USD', true);
+  const ni = secAnnual(facts, ['NetIncomeLoss', 'ProfitLoss'], 'USD', true);
+  const eq = secAnnual(facts, ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'], 'USD', false);
+  // 부채비율용 총부채: Liabilities 우선, 없으면 자산-자본
+  let liabVal = null, liabEnd = null;
   {
-    const liab = secAnnual(facts, ['Liabilities']);
-    liabVal = liab[0] ? liab[0].val : null;
-    if (liabVal == null) {
-      const assets = secAnnual(facts, ['Assets']);
-      const lc = secAnnual(facts, ['LiabilitiesCurrent']);
-      const lnc = secAnnual(facts, ['LiabilitiesNoncurrent']);
-      if (assets[0] && eq[0]) liabVal = assets[0].val - eq[0].val;
-      else if (lc[0] && lnc[0]) liabVal = lc[0].val + lnc[0].val;
+    const liab = secAnnual(facts, ['Liabilities'], 'USD', false);
+    if (liab[0]) { liabVal = liab[0].val; liabEnd = liab[0].end; }
+    else {
+      const assets = secAnnual(facts, ['Assets'], 'USD', false);
+      const lc = secAnnual(facts, ['LiabilitiesCurrent'], 'USD', false);
+      const lnc = secAnnual(facts, ['LiabilitiesNoncurrent'], 'USD', false);
+      if (assets[0] && eq[0]) { liabVal = assets[0].val - eq[0].val; liabEnd = assets[0].end; }
+      else if (lc[0] && lnc[0]) { liabVal = lc[0].val + lnc[0].val; liabEnd = lc[0].end; }
     }
   }
 
-  const v = (arr, i = 0) => (arr[i] ? arr[i].val : null);
   const out = { _sec_used: [], _sec_period: rev[0] ? rev[0].end : null };
+  const fyEnd = rev[0] ? rev[0].end : null; // 기준 회계연도 말일
 
-  // 영업이익률
-  if (v(op) != null && v(rev)) { out.opMargin = v(op) / v(rev) * 100; out._sec_used.push('opMargin'); }
-  // ROE = 순이익 ÷ 자본
-  if (v(ni) != null && v(eq)) { out.roe = v(ni) / v(eq) * 100; out._sec_used.push('roe'); }
-  // 부채비율 = 총부채 ÷ 자본 ×100
-  if (liabVal != null && v(eq)) { out.debtRatio = liabVal / v(eq) * 100; out._sec_used.push('debtRatio'); }
-  // 매출성장 (최근연 ÷ 전년)
-  if (v(rev, 0) && v(rev, 1)) { out.revGrowth = (v(rev, 0) / v(rev, 1) - 1) * 100; out._sec_used.push('revGrowth'); }
+  // 영업이익률 = 같은 연도 영업이익 ÷ 매출
+  const [revV, opV] = matchByEnd(rev, op);
+  if (revV && opV != null) { out.opMargin = opV / revV * 100; out._sec_used.push('opMargin'); }
+  // ROE = 같은 연도 순이익 ÷ 자본 (자본은 그 연도말 시점)
+  const [revV2, niV] = matchByEnd(rev, ni);
+  const eqMatch = eq.find(x => fyEnd && Math.abs((new Date(x.end) - new Date(fyEnd)) / 86400000) <= 20);
+  const eqV = eqMatch ? eqMatch.val : (eq[0] ? eq[0].val : null);
+  if (niV != null && eqV) { out.roe = niV / eqV * 100; out._sec_used.push('roe'); }
+  // 부채비율 = 총부채 ÷ 자본 (같은 연도)
+  if (liabVal != null && eqV) { out.debtRatio = liabVal / eqV * 100; out._sec_used.push('debtRatio'); }
+  // 매출성장 = 최근연 ÷ 전년
+  if (rev[0] && rev[1]) { out.revGrowth = (rev[0].val / rev[1].val - 1) * 100; out._sec_used.push('revGrowth'); }
   // 영익성장
-  if (v(op, 0) != null && v(op, 1)) { out.opGrowth = (v(op, 0) / v(op, 1) - 1) * 100; out._sec_used.push('opGrowth'); }
-  // PSR = 시총 ÷ 매출 (시총은 KIS/FMP에서 받은 값)
-  if (mcap != null && v(rev)) { out.psr = mcap / v(rev); out._sec_used.push('psr'); }
+  if (op[0] && op[1] && op[1].val) { out.opGrowth = (op[0].val / op[1].val - 1) * 100; out._sec_used.push('opGrowth'); }
+  // PSR = 시총 ÷ 최근연 매출
+  if (mcap != null && rev[0]) { out.psr = mcap / rev[0].val; out._sec_used.push('psr'); }
 
   return out;
 }
