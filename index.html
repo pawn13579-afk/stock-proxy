@@ -89,13 +89,12 @@
 </header>
 <div class="wrap">
   <div class="controls">
-    <div class="ctl"><label>환율 USD/KRW</label><input id="fx" class="num" value="1559"></div>
-    <div class="ctl"><label>이번에 팔 금액(만원)</label><input id="tAmt" class="num" value="400"></div>
-    <div class="ctl"><label>올해 기실현 미국주차익(만원)</label><input id="usGainYTD" class="num" value="0" title="올해 이미 매도해 실현한 미국주 양도차익. 250만 공제 잔여 계산용. 없으면 0"></div>
+    <div class="ctl"><label>환율 USD/KRW</label><input id="fx" class="num" value="1559" onchange="recalc()"></div>
+    <div class="ctl"><label>이번에 팔 금액(만원)</label><input id="tAmt" class="num" value="400" onchange="recalc()"></div>
+    <div class="ctl"><label>올해 기실현 미국주차익(만원)</label><input id="usGainYTD" class="num" value="0" onchange="recalc()" title="올해 이미 매도해 실현한 미국주 양도차익. 250만 공제 잔여 계산용. 없으면 0"></div>
     <div class="ctl" style="flex:1;min-width:300px"><label>Vercel 프록시 주소</label><input id="proxyUrl" style="width:100%" placeholder="(같은 주소에 올렸으면 비워두세요)"></div>
     <button onclick="fillAll()" style="background:var(--pos)">🔄 API 자동채우기</button>
     <span id="fillStatus" style="font-size:12px;color:var(--dim)"></span>
-    <button onclick="recalc()">재계산</button>
     <button onclick="toggleAdd()" style="background:var(--accent)">＋ 종목 추가</button>
     <button onclick="exportData()" style="background:var(--gold)">💾 내보내기(백업)</button>
     <button class="ghost" onclick="document.getElementById('importFile').click()">📂 불러오기</button>
@@ -320,30 +319,44 @@ async function fillAll(){
   const st=document.getElementById('fillStatus');
   const targets=HOLD.map((h,i)=>({h,i})).filter(x=>x.h.apiSym||x.h.mkt==='COIN');
   let ok=0,fail=0;
+  const failed=[];
+  async function fetchOne(h,i,n,total,label){
+    const mk=h.mkt==='US'?('market=US&ticker='+h.apiSym)
+           :h.mkt==='COIN'?('market=COIN&ticker='+(h.apiSym||'BTC'))
+           :('market=KR&code='+h.apiSym);
+    let d=await (await fetch((PROXY||'')+'/api/stock?'+mk)).json();
+    const empty=(x)=>x&&!x.error&&x.price!=null&&x.per==null&&x.target==null&&x.beta==null&&x.lo52==null&&x.ret3m==null;
+    if(empty(d)){
+      await new Promise(r=>setTimeout(r,500));
+      try{const d2=await (await fetch((PROXY||'')+'/api/stock?'+mk)).json(); if(d2&&!d2.error&&!empty(d2))d=d2;}catch(e){}
+    }
+    if(d&&!d.error){
+      ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta','ma20','ma60'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
+      if(d.price!=null)h.px=d.price;
+      if(h.mkt==='KR'&&d.flow!=null){const dir=d.flow>0?1:d.flow<0?-1:null;h.frn=dir;h.inst=dir;h.flowRaw=d.flow;}
+      h._src=1; return true;
+    }
+    return false;
+  }
   for(let n=0;n<targets.length;n++){
     const {h,i}=targets[n];
     st.textContent='불러오는 중… '+(n+1)+'/'+targets.length+' ('+h.n+')';
     try{
-      const mk=h.mkt==='US'?('market=US&ticker='+h.apiSym)
-             :h.mkt==='COIN'?('market=COIN&ticker='+(h.apiSym||'BTC'))
-             :('market=KR&code='+h.apiSym);
-      let d=await (await fetch((PROXY||'')+'/api/stock?'+mk)).json();
-      // px만 오고 펀더멘털·시세지표가 전부 비면(외부API 일시 타임아웃) 1회 재시도
-      const empty=(x)=>x&&!x.error&&x.price!=null&&x.per==null&&x.target==null&&x.beta==null&&x.lo52==null&&x.ret3m==null;
-      if(empty(d)){
-        st.textContent='재시도… '+(n+1)+'/'+targets.length+' ('+h.n+')';
-        await new Promise(r=>setTimeout(r,400));
-        try{const d2=await (await fetch((PROXY||'')+'/api/stock?'+mk)).json(); if(d2&&!d2.error&&!empty(d2))d=d2;}catch(e){}
-      }
-      if(d&&!d.error){
-        ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta','ma20','ma60'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
-        if(d.price!=null)h.px=d.price;
-        // 수급 자동: 외인+기관 순매수÷거래량(%) → 매수(+1)/매도(-1) 방향. 한국주만.
-        if(h.mkt==='KR'&&d.flow!=null){const dir=d.flow>0?1:d.flow<0?-1:null;h.frn=dir;h.inst=dir;h.flowRaw=d.flow;}
-        h._src=1; ok++;
-      }else fail++;
-    }catch(e){fail++;}
+      const okk=await fetchOne(h,i,n,targets.length);
+      if(okk)ok++; else failed.push({h,i});
+    }catch(e){failed.push({h,i});}
     render();
+    await new Promise(r=>setTimeout(r,250)); // 종목간 간격: 프록시 과부하·rate limit 회피
+  }
+  // 실패분 끝에 재시도 (과부하로 밀린 종목 복구)
+  if(failed.length){
+    for(let n=0;n<failed.length;n++){
+      const {h,i}=failed[n];
+      st.textContent='실패분 재시도… '+(n+1)+'/'+failed.length+' ('+h.n+')';
+      await new Promise(r=>setTimeout(r,600));
+      try{ if(await fetchOne(h,i,n,failed.length)){ok++;}else{fail++;} }catch(e){fail++;}
+      render();
+    }
   }
   st.textContent='완료: '+ok+'종목 채움'+(fail?(', '+fail+'개 실패(코드없음/ETF/비트코인 등)'):'');
   saveData();
