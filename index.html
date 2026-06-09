@@ -50,11 +50,9 @@
   .histhead h3{margin:0;font-size:15px}
   .histsum{display:flex;flex-wrap:wrap;gap:18px;padding:10px 0;font-size:13px;border-bottom:1px solid var(--line);margin-bottom:10px}
   .histsum b{font-family:'Spline Sans Mono';font-size:15px}
-  .histtbl{width:100%;min-width:680px;border-collapse:collapse;font-size:12px;table-layout:fixed}
-  .histtbl th,.histtbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .histtbl th:nth-child(1),.histtbl td:nth-child(1){width:90px}
-  .histtbl th:nth-child(9),.histtbl td:nth-child(9){width:36px;text-align:center}
-  .histtbl th:nth-child(8),.histtbl td:nth-child(8){width:64px}
+  .histtbl{width:100%;min-width:720px;border-collapse:collapse;font-size:12px}
+  .histtbl th,.histtbl td{white-space:nowrap}
+  .histtbl th:nth-child(9),.histtbl td:nth-child(9){text-align:center}
   .histtbl th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px}
   .histtbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
   .histtbl .num{text-align:right;font-family:'Spline Sans Mono'}
@@ -87,7 +85,6 @@
     /* 모바일: 메인 테이블만 자동으로 핵심 컬럼만 (가로 스크롤 최소화) */
     #tbl th:nth-child(n+6):nth-child(-n+24),#tbl td:nth-child(n+6):nth-child(-n+24){display:none}
     #tbl.showall th:nth-child(n+6):nth-child(-n+24),#tbl.showall td:nth-child(n+6):nth-child(-n+24){display:table-cell}
-    .histtbl th:nth-child(3),.histtbl td:nth-child(3){display:none}
     .tblctl{font-size:10px;gap:10px}
     .card .v{font-size:17px}
   }
