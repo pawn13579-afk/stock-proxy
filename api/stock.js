@@ -249,6 +249,15 @@ async function fetchUS(ticker) {
     ret3m = num(C['3M']);
   } catch (e) {}
 
+  // 6) income-statement-growth: 최근 연도 매출·영익 성장률 (소수→%)
+  let revGrowth = null, opGrowth = null;
+  try {
+    const g = await (await fetch(`${base}/income-statement-growth?symbol=${ticker}&limit=1&apikey=${key}`)).json();
+    const G = Array.isArray(g) && g[0] ? g[0] : {};
+    if (G.growthRevenue != null) revGrowth = num(G.growthRevenue) * 100;
+    if (G.growthOperatingIncome != null) opGrowth = num(G.growthOperatingIncome) * 100;
+  } catch (e) {}
+
   return {
     price: num(Q.price),
     per: num(R.priceToEarningsRatioTTM) || num(Q.pe) || num(Q.priceEarningsRatio),
@@ -259,8 +268,8 @@ async function fetchUS(ticker) {
          ? num(R.netIncomePerShareTTM) / num(R.shareholdersEquityPerShareTTM) * 100 : null,
     opMargin: R.operatingProfitMarginTTM != null ? num(R.operatingProfitMarginTTM) * 100 : null,
     debtRatio: R.debtToEquityRatioTTM != null ? num(R.debtToEquityRatioTTM) * 100 : null,
-    revGrowth: null,
-    opGrowth: null,
+    revGrowth: revGrowth,
+    opGrowth: opGrowth,
     lo52: num(Q.yearLow),
     hi52: num(Q.yearHigh),
     beta: beta,
