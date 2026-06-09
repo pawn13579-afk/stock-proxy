@@ -45,6 +45,16 @@
   .topll{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .tlh{font-size:11px;margin-bottom:6px;font-weight:600}
   .tlr{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;font-family:'Spline Sans Mono'}
+  .histbox{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .histhead{display:flex;justify-content:space-between;align-items:center}
+  .histhead h3{margin:0;font-size:15px}
+  .histsum{display:flex;flex-wrap:wrap;gap:18px;padding:10px 0;font-size:13px;border-bottom:1px solid var(--line);margin-bottom:10px}
+  .histsum b{font-family:'Spline Sans Mono';font-size:15px}
+  .histtbl{width:100%;border-collapse:collapse;font-size:12px}
+  .histtbl th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px}
+  .histtbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
+  .histtbl .num{text-align:right;font-family:'Spline Sans Mono'}
+  .histtbl th.num{text-align:right}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
   .card .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
   .card .v{font-family:'Spline Sans Mono';font-size:20px;font-weight:600;margin-top:4px}
@@ -169,6 +179,22 @@
   </tr></thead><tbody id="tbody"></tbody></table></div>
   <div class="srcnote">⚑ = 종목 관련 이벤트(직접 입력). 데이터는 KIS·SEC·Yahoo·Upbit에서 자동 수집됩니다. <b>매입단가는 미국주=달러($), 한국주·코인=원(₩)</b>으로 입력하세요(현재가와 같은 단위). ⚠️ 변동성 큰 장에서는 매도 당일 [API 자동채우기]로 현재가·목표가를 다시 받는 것을 권장합니다.</div>
   <div class="plan" id="plans"></div>
+  <div class="histbox">
+    <div class="histhead">
+      <h3>매도 이력 · 연속 추적</h3>
+      <button onclick="toggleSell()" style="background:var(--accent)">＋ 매도 기록</button>
+    </div>
+    <div id="sellForm" style="display:none;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;margin:10px 0">
+      <div class="ctl"><label>종목</label><select id="sName" style="width:160px" onchange="fillSellAcct()"></select></div>
+      <div class="ctl"><label>계좌</label><select id="sAcct" style="width:180px" onchange="fillSellAcct()"></select></div>
+      <div class="ctl"><label>판 주수</label><input id="sQty" style="width:80px" placeholder="8"></div>
+      <div class="ctl"><label>체결가 (미국=$ / 한국·코인=원)</label><input id="sPrice" style="width:130px" placeholder="체결단가"></div>
+      <div class="ctl"><label>매도일</label><input id="sDate" type="date" style="width:140px"></div>
+      <button onclick="recordSell()" style="background:var(--pos)">기록</button>
+      <span style="font-size:11px;color:var(--faint)">기록하면 보유 수량이 차감되고 실현손익에 반영됩니다</span>
+    </div>
+    <div id="history"></div>
+  </div>
   <details><summary>▸ 다축 매도점수 모델 공개 (공식·가중치·수정)</summary>
     <div class="det">
       <h4>금액 로데이터 → 비율 → 점수 (전부 제가 계산)</h4>
@@ -190,7 +216,8 @@
 let HOLD=[{"n": "CRCL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 10, "avg": 178.7774}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Buy", "event": "8/18 어닝, 규제법(Clarity Act) 진전", "_src": null, "qtyTotal": 10, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "CRCL"}, {"n": "ORCL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 5, "avg": 301.9963}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Strong Buy", "event": "6/16 어닝", "_src": null, "qtyTotal": 5, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "ORCL"}, {"n": "PLTR", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 238, "avg": 98.412}, {"acct": "KH미화", "qty": 5, "avg": 159.2811}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Buy", "event": "Q1 매출 +85%, PER 195 극고평가", "_src": null, "qtyTotal": 243, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "PLTR"}, {"n": "MSFT", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 2, "avg": 497.7199}, {"acct": "KH미화", "qty": 1, "avg": 519.9197}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Strong Buy", "event": null, "_src": null, "qtyTotal": 3, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "MSFT"}, {"n": "NFLX", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 30, "avg": 91.2341}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": null, "event": null, "_src": null, "qtyTotal": 30, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "NFLX"}, {"n": "NVDA", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 20, "avg": 159.0116}, {"acct": "KH미화", "qty": 3, "avg": 195.055}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Strong Buy", "event": "6월초 반도체 동반 급락", "_src": null, "qtyTotal": 23, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "NVDA"}, {"n": "AAPL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 8, "avg": 216.5014}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Buy", "event": null, "_src": null, "qtyTotal": 8, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "AAPL"}, {"n": "AMD", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 10, "avg": 218.9566}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Strong Buy", "event": "최근 급락, PER 169 고평가", "_src": null, "qtyTotal": 10, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "AMD"}, {"n": "AVGO", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 3, "avg": 376.0065}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Buy", "event": "6월초 어닝 후 -12% 급락, AI매출 +143%", "_src": null, "qtyTotal": 3, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "AVGO"}, {"n": "SATL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 50, "avg": 4.267}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": null, "event": null, "_src": null, "qtyTotal": 50, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "SATL"}, {"n": "SMH(ETF)", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 20, "avg": 409.1918}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "ETF", "event": null, "_src": null, "qtyTotal": 20, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "SMH"}, {"n": "TSLA", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 19, "avg": 392.281}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Buy", "event": null, "_src": null, "qtyTotal": 19, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "TSLA"}, {"n": "DXYZ(ETF)", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 6, "avg": 29.992}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "ETF", "event": null, "_src": null, "qtyTotal": 6, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "DXYZ"}, {"n": "GOOGL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 10, "avg": 312.2042}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Strong Buy", "event": "SpaceX 클라우드 계약(월 $9.2억)", "_src": null, "qtyTotal": 10, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "GOOGL"}, {"n": "INTC", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 13, "avg": 28.6064}, {"acct": "KH미화", "qty": 150, "avg": 37.0725}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Hold", "event": "구글 칩 300만개 주문 호재(+9%), 7/23 어닝", "_src": null, "qtyTotal": 163, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "INTC"}, {"n": "META", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 6, "avg": 643.1124}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Strong Buy", "event": "AI 투자 확대 위해 신주 발행 검토 보도", "_src": null, "qtyTotal": 6, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "META"}, {"n": "MRVL", "mkt": "US", "lots": [{"acct": "아내미화", "qty": 3, "avg": 89.7968}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": "Buy", "event": "젠슨황 \"차세대 트릴리언\" 언급 급등, 변동성↑", "_src": null, "qtyTotal": 3, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "MRVL"}, {"n": "SK하이닉스", "mkt": "KR", "lots": [{"acct": "KH국내", "qty": 13, "avg": 626115.2179}, {"acct": "아내국내", "qty": 11, "avg": 466380.272}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "Strong Buy", "event": "엔비디아와 차세대 메모리 공동개발", "_src": null, "qtyTotal": 24, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "000660"}, {"n": "코스모신소재", "mkt": "KR", "lots": [{"acct": "KH국내", "qty": 7, "avg": 51735.0557}, {"acct": "아내국내", "qty": 25, "avg": 48838.8796}, {"acct": "아내국내2", "qty": 17, "avg": 48485.1148}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 49, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "005070"}, {"n": "한화오션", "mkt": "KR", "lots": [{"acct": "KH국내", "qty": 20, "avg": 132910.5733}, {"acct": "아내국내", "qty": 38, "avg": 115414.8423}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "Buy", "event": null, "_src": null, "qtyTotal": 58, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "042660"}, {"n": "KODEX200(ETF)", "mkt": "KR", "lots": [{"acct": "KH국내", "qty": 3, "avg": 76714.7899}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "ETF", "event": null, "_src": null, "qtyTotal": 3, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "069500"}, {"n": "에코프로비엠", "mkt": "KR", "lots": [{"acct": "KH국내", "qty": 18, "avg": 161277.3245}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "Hold", "event": null, "_src": null, "qtyTotal": 18, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "247540"}, {"n": "에이직랜드", "mkt": "KR", "lots": [{"acct": "KH국내", "qty": 10, "avg": 32977.0594}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 10, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "445090"}, {"n": "삼성전자", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 32, "avg": 171267.8937}, {"acct": "아내국내2", "qty": 35, "avg": 68341.1407}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "Buy", "event": null, "_src": null, "qtyTotal": 67, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "005930"}, {"n": "POSCO홀딩스", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 5, "avg": 361825.6431}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 5, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "005490"}, {"n": "TIGER원자력(ETF)", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 50, "avg": 22278.1218}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "ETF", "event": null, "_src": null, "qtyTotal": 50, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "0091P0"}, {"n": "두산에너빌리티", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 10, "avg": 83842.7948}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 10, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "034020"}, {"n": "대우건설", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 37, "avg": 15454.5455}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 37, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "047040"}, {"n": "1Q200액티브(ETF)", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 56, "avg": 25421.8223}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "ETF", "event": null, "_src": null, "qtyTotal": 56, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "451060"}, {"n": "필옵틱스", "mkt": "KR", "lots": [{"acct": "아내국내", "qty": 21, "avg": 49537.394}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 21, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "161580"}, {"n": "셀바스AI", "mkt": "KR", "lots": [{"acct": "아내국내2", "qty": 70, "avg": 12182.311}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": null, "event": null, "_src": null, "qtyTotal": 70, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "108860"}, {"n": "LG에너지솔루션", "mkt": "KR", "lots": [{"acct": "아내국내2", "qty": 6, "avg": 300003.7404}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "frn": null, "inst": null, "rating": "Buy", "event": null, "_src": null, "qtyTotal": 6, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": "373220"}, {"n": "비트코인", "mkt": "COIN", "lots": [{"acct": "업비트", "qty": 0.08796451, "avg": 120563832.7242}], "px": null, "target": null, "lo52": null, "hi52": null, "beta": null, "ma20": null, "ma60": null, "rating": null, "event": null, "_src": null, "qtyTotal": 0.08796451, "noflow": 1, "per": null, "pbr": null, "psr": null, "roe": null, "opMargin": null, "debtRatio": null, "revGrowth": null, "opGrowth": null, "ret3m": null, "apiSym": ""}];
 let W={ER:0.18,VAL:0.15,GROWTH:0.13,PROFIT:0.12,MOM:0.12,CONC:0.12,RAR:0.08,FLOW:0.06,TAX:0.04};
 let PROXY='';
-try{const s=localStorage.getItem('sellToolV8');if(s){const d=JSON.parse(s);if(d.HOLD)HOLD=d.HOLD;if(d.W)W=d.W;if(d.PROXY)PROXY=d.PROXY;}}catch(e){}
+let SOLD=[]; // 매도 이력: {date, n, mkt, acct, qty, price, avg, gain(만원), taxable}
+try{const s=localStorage.getItem('sellToolV8');if(s){const d=JSON.parse(s);if(d.HOLD)HOLD=d.HOLD;if(d.W)W=d.W;if(d.PROXY)PROXY=d.PROXY;if(d.SOLD)SOLD=d.SOLD;}}catch(e){}
 function fx(){return parseFloat(document.getElementById('fx').value)||1559;}
 // ===== 매입단가 기반 자동 계산 =====
 // lot = {acct, qty(수량), avg(매입단가)}. 평가·수익률·차익을 현재가(px)에서 자동 산출.
@@ -448,7 +475,7 @@ function render(){
       '<td><span class="score" style="background:'+scC+'22;color:'+scC+'" title="'+(sc!=null?scoreTooltip(row.parts,row.hasER).replace(/"/g,'&quot;'):'')+'">'+(sc!=null?sc.toFixed(1)+(!row.hasER?' <span style="font-size:8px;color:var(--warn)">(목표가x)</span>':''):'-')+'</span></td>';
     tb.appendChild(tr);
   });
-  renderSummary();renderPlans(scored);
+  renderSummary();renderPlans(scored);renderHistory();
 }
 // 도넛 차트 SVG 생성 (data: [{label,value,color}])
 function donutSVG(data,size,cx,cy,r,rin){
@@ -473,6 +500,83 @@ function legendHTML(data){
   return '<div class="chlg">'+data.map(d=>'<span><i style="background:'+d.color+'"></i>'+d.label+' '+(d.value/total*100).toFixed(0)+'%</span>').join('')+'</div>';
 }
 
+// ===== 매도 실행 기록 (2단계) =====
+// 실현손익 합계(만원). 미국주는 양도세 대상 차익도 별도 집계.
+function realizedTotal(){return SOLD.reduce((s,r)=>s+(r.gain||0),0);}
+function realizedUSGainThisYear(){
+  const yr=new Date().getFullYear();
+  return SOLD.filter(r=>r.taxable&&new Date(r.date).getFullYear()===yr).reduce((s,r)=>s+(r.gain||0),0);
+}
+function cashedTotal(){ // 현금화 총액(만원) = 체결가×주수
+  return SOLD.reduce((s,r)=>{const v=r.qty*r.price;return s+(r.mkt==='US'?v*fx()/10000:v/10000);},0);
+}
+// 매도 입력 폼 토글
+function toggleSell(){const f=document.getElementById('sellForm');f.style.display=f.style.display==='none'?'flex':'none';if(f.style.display==='flex'){fillSellSelect();const d=document.getElementById('sDate');if(!d.value)d.value=new Date().toISOString().slice(0,10);}}
+// 종목 선택 시 계좌 옵션 채우기
+function fillSellSelect(){
+  const sel=document.getElementById('sName');
+  sel.innerHTML=HOLD.filter(h=>qtyTotal(h)>0).map((h,i)=>'<option value="'+HOLD.indexOf(h)+'">'+h.n+' (보유 '+qtyTotal(h)+')</option>').join('');
+  fillSellAcct();
+}
+function fillSellAcct(){
+  const hi=parseInt(document.getElementById('sName').value);
+  const h=HOLD[hi]; if(!h)return;
+  const sel=document.getElementById('sAcct');
+  sel.innerHTML=h.lots.filter(l=>l.qty>0).map((l,li)=>'<option value="'+h.lots.indexOf(l)+'">'+(l.acct||'계좌')+' (보유 '+l.qty+' @'+(l.avg!=null?Math.round(l.avg*100)/100:'?')+')</option>').join('');
+  // 체결가 기본값 = 현재가
+  const px=price(h); const pe=document.getElementById('sPrice'); if(px!=null&&!pe.value)pe.value=Math.round(px*100)/100;
+}
+// 매도 기록 실행
+function recordSell(){
+  const hi=parseInt(document.getElementById('sName').value);
+  const li=parseInt(document.getElementById('sAcct').value);
+  const qty=parseFloat(document.getElementById('sQty').value)||0;
+  const price=parseFloat(document.getElementById('sPrice').value)||0;
+  const date=document.getElementById('sDate').value||new Date().toISOString().slice(0,10);
+  const h=HOLD[hi]; if(!h){alert('종목을 선택하세요');return;}
+  const lot=h.lots[li]; if(!lot){alert('계좌를 선택하세요');return;}
+  if(qty<=0||price<=0){alert('주수와 체결가를 입력하세요');return;}
+  if(qty>lot.qty+1e-9){alert('보유 수량('+lot.qty+')보다 많이 팔 수 없습니다');return;}
+  // 차익(만원) = (체결가-매입가)×주수, 통화 환산
+  const avg=lot.avg!=null?lot.avg:0;
+  const gainNative=(price-avg)*qty;
+  const gain=h.mkt==='US'?gainNative*fx()/10000:gainNative/10000;
+  SOLD.push({date,n:h.n,mkt:h.mkt,acct:lot.acct,qty,price,avg,gain,taxable:(h.mkt==='US')});
+  // 보유 차감
+  lot.qty=Math.round((lot.qty-qty)*1e8)/1e8;
+  if(lot.qty<=1e-9 && h.lots.length>1)h.lots.splice(li,1); // 0 되면 계좌 제거(마지막 1개는 유지)
+  // 올해 미국주 양도차익 자동 반영 → 입력칸 갱신
+  const ug=document.getElementById('usGainYTD'); if(ug)ug.value=Math.round(realizedUSGainThisYear());
+  document.getElementById('sQty').value=''; document.getElementById('sPrice').value='';
+  render();saveData();
+}
+function delSold(idx){
+  if(!confirm('이 매도 기록을 삭제할까요? (보유 수량은 자동 복구되지 않습니다)'))return;
+  SOLD.splice(idx,1);
+  const ug=document.getElementById('usGainYTD'); if(ug)ug.value=Math.round(realizedUSGainThisYear());
+  render();saveData();
+}
+function renderHistory(){
+  const el=document.getElementById('history'); if(!el)return;
+  if(!SOLD.length){el.innerHTML='<div style="color:var(--faint);font-size:12px;padding:8px 0">아직 매도 기록이 없습니다. [매도 기록]으로 실제 매도를 입력하면 여기에 누적되고, 보유 수량·실현손익이 자동 반영됩니다.</div>';return;}
+  const real=realizedTotal(), cashed=cashedTotal(), usYr=realizedUSGainThisYear();
+  let html='<div class="histsum">'+
+    '<span>누적 현금화 <b>'+cashed.toFixed(0)+'만</b></span>'+
+    '<span>실현손익 <b style="color:'+(real>=0?'var(--pos)':'var(--neg)')+'">'+(real>=0?'+':'')+real.toFixed(0)+'만</b></span>'+
+    '<span>올해 미국주 실현차익 <b>'+usYr.toFixed(0)+'만</b> <span style="color:var(--faint);font-size:10px">(250만 공제, 잔여 '+Math.max(0,250-usYr).toFixed(0)+'만)</span></span>'+
+    '</div>';
+  html+='<table class="histtbl"><thead><tr><th>날짜</th><th>종목</th><th>계좌</th><th class="num">주수</th><th class="num">체결가</th><th class="num">매입가</th><th class="num">실현손익</th><th>세금</th><th></th></tr></thead><tbody>';
+  [...SOLD].reverse().forEach((r,ri)=>{
+    const realIdx=SOLD.length-1-ri;
+    html+='<tr><td>'+r.date+'</td><td>'+r.n+'</td><td>'+(r.acct||'')+'</td><td class="num">'+r.qty+'</td><td class="num">'+r.price+'</td><td class="num">'+(r.avg!=null?Math.round(r.avg*100)/100:'-')+'</td>'+
+      '<td class="num" style="color:'+(r.gain>=0?'var(--pos)':'var(--neg)')+'">'+(r.gain>=0?'+':'')+r.gain.toFixed(0)+'만</td>'+
+      '<td style="font-size:10px;color:var(--faint)">'+(r.taxable?'양도세대상':'비과세')+'</td>'+
+      '<td><span class="del" onclick="delSold('+realIdx+')" title="기록 삭제">×</span></td></tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
 function renderSummary(){
   const tot=totalEval();
   const us=HOLD.filter(h=>h.mkt==='US').reduce((s,h)=>s+evalManwon(h),0);
@@ -493,7 +597,7 @@ function renderSummary(){
     '<div class="card"><div class="k">총 매수액(원금)</div><div class="v num">'+(totCost/10000).toFixed(2)+'억</div><div class="ks">내가 투입한 돈</div></div>'+
     '<div class="card"><div class="k">총 평가액</div><div class="v num">'+(tot/10000).toFixed(2)+'억</div><div class="ks">미국 '+(us/10000).toFixed(1)+'억·국내 '+(kr/10000).toFixed(1)+'억·코인 '+coin.toFixed(0)+'만</div></div>'+
     '<div class="card"><div class="k">총 평가손익 (미실현)</div><div class="v num" style="color:'+gc+'">'+(totGain>=0?'+':'')+(totGain/10000).toFixed(2)+'억</div><div class="ks" style="color:'+gc+'">'+(totRet>=0?'+':'')+totRet.toFixed(1)+'%</div></div>'+
-    '<div class="card"><div class="k">실현손익 (누적)</div><div class="v num" style="color:var(--faint)">0만</div><div class="ks">매도 이력 기능 추가 시 자동 집계</div></div>'+
+    '<div class="card"><div class="k">실현손익 (누적)</div><div class="v num" style="color:'+(realizedTotal()>=0?(SOLD.length?'var(--pos)':'var(--faint)'):'var(--neg)')+'">'+(realizedTotal()>=0?'+':'')+realizedTotal().toFixed(0)+'만</div><div class="ks">'+(SOLD.length?SOLD.length+'건 매도 · 현금화 '+cashedTotal().toFixed(0)+'만':'매도 기록 시 자동 집계')+'</div></div>'+
     '<div class="card"><div class="k">미실현 손익 (시장별)</div><div class="v" style="font-size:13px;line-height:1.6"><span style="color:'+gcol(usGain)+'">미국 '+gsign(usGain)+'</span> <span style="font-size:9px;color:var(--faint)">양도세대상</span><br><span style="color:'+gcol(krGain)+'">한국 '+gsign(krGain)+'</span> <span style="font-size:9px;color:var(--faint)">비과세</span><br><span style="color:'+gcol(coinGain)+'">코인 '+gsign(coinGain)+'</span> <span style="font-size:9px;color:var(--faint)">비과세</span></div></div>'+
     '</div>';
 
@@ -656,10 +760,10 @@ function addStock(){
 }
 function delStock(i){if(confirm('['+HOLD[i].n+'] 삭제할까요?')){HOLD.splice(i,1);render();saveData();}}
 function recalc(){render();saveData();}
-function saveData(){try{localStorage.setItem('sellToolV8',JSON.stringify({HOLD,W,PROXY}));}catch(e){}}
+function saveData(){try{localStorage.setItem('sellToolV8',JSON.stringify({HOLD,W,PROXY,SOLD}));}catch(e){}}
 function resetData(){if(confirm('입력값 초기화?')){localStorage.removeItem('sellToolV8');location.reload();}}
-function exportData(){const blob=new Blob([JSON.stringify({HOLD,W,PROXY},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='매도도구_백업_'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);}
-function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=JSON.parse(ev.target.result);if(d.HOLD&&Array.isArray(d.HOLD)){HOLD=d.HOLD;}if(d.W)W=d.W;if(d.PROXY){PROXY=d.PROXY;const e2=document.getElementById('proxyUrl');if(e2)e2.value=PROXY;}saveData();render();renderWeights();alert('복원 완료 ('+HOLD.length+'종목)');}catch(err){alert('실패: '+err.message);}};r.readAsText(f);}
+function exportData(){const blob=new Blob([JSON.stringify({HOLD,W,PROXY,SOLD},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='매도도구_백업_'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);}
+function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=JSON.parse(ev.target.result);if(d.HOLD&&Array.isArray(d.HOLD)){HOLD=d.HOLD;}if(d.W)W=d.W;if(d.SOLD)SOLD=d.SOLD;if(d.PROXY){PROXY=d.PROXY;const e2=document.getElementById('proxyUrl');if(e2)e2.value=PROXY;}saveData();render();renderWeights();alert('복원 완료 ('+HOLD.length+'종목, 매도이력 '+SOLD.length+'건)');}catch(err){alert('실패: '+err.message);}};r.readAsText(f);}
 if(PROXY)setTimeout(()=>{const e=document.getElementById('proxyUrl');if(e)e.value=PROXY;},0);
 renderWeights();render();
 // 위쪽 가짜 스크롤바 ↔ 표 스크롤 동기화
