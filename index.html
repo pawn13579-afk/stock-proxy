@@ -52,9 +52,9 @@
   .histsum b{font-family:'Spline Sans Mono';font-size:15px}
   .histtbl{width:100%;min-width:720px;border-collapse:collapse;font-size:12px;table-layout:fixed}
   .histtbl th,.histtbl td{white-space:nowrap;text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis}
-  .histtbl col.cdate{width:11%} .histtbl col.cname{width:12%} .histtbl col.cacct{width:13%}
-  .histtbl col.cqty{width:9%} .histtbl col.cprice{width:12%} .histtbl col.cavg{width:12%}
-  .histtbl col.cgain{width:13%} .histtbl col.ctax{width:12%} .histtbl col.cdel{width:6%}
+  .histtbl col.cdate{width:9%} .histtbl col.cname{width:11%} .histtbl col.cacct{width:9%}
+  .histtbl col.cqty{width:7%} .histtbl col.cprice{width:9%} .histtbl col.cavg{width:9%}
+  .histtbl col.csell{width:10%} .histtbl col.cbuy{width:10%} .histtbl col.cgain{width:11%} .histtbl col.ctax{width:9%} .histtbl col.cdel{width:6%}
   .histtbl .num{text-align:right;font-family:'Spline Sans Mono'}
   .histtbl th.num{text-align:right}
   .histtbl .cdel,.histtbl th.cdelh{text-align:center}
@@ -499,7 +499,11 @@ async function fillAll(){
       ['per','pbr','psr','roe','opMargin','debtRatio','revGrowth','opGrowth','target','lo52','hi52','ret3m','beta','ma20','ma60'].forEach(k=>{if(d[k]!=null)h[k]=d[k];});
       if(d.price!=null)h.px=d.price;
       // 미국주: 받아온 영문 회사명을 풀네임으로 병기(종목명이 티커 그대로일 때만)
-      if(h.mkt==='US'&&d.name&&d.name!==h.apiSym)h.fullname=d.name;
+      // 미국주: 종목명이 아직 티커 그대로면 회사명으로 자동 교체 (사용자가 직접 바꿨으면 존중)
+      if(h.mkt==='US'&&d.name&&d.name!==h.apiSym){
+        h.fullname=d.name;
+        if(h.n===h.apiSym)h.n=d.name; // 종목명=티커면 회사명으로 승격
+      }
       if(h.mkt==='KR'&&d.flow!=null){const dir=d.flow>0?1:d.flow<0?-1:null;h.frn=dir;h.inst=dir;h.flowRaw=d.flow;}
       h._src=1; return true;
     }
@@ -727,7 +731,7 @@ function renderHistory(){
     '<span>실현손익 <b style="color:'+(real>=0?'var(--pos)':'var(--neg)')+'">'+cms(real)+'만</b></span>'+
     '<span>올해 미국주 실현차익 <b>'+cm(usYr)+'만</b> <span style="color:var(--faint);font-size:10px">(250만 공제, 잔여 '+cm(Math.max(0,250-usYr))+'만)</span></span>'+
     '</div>';
-  html+='<table class="histtbl"><colgroup><col class="cdate"><col class="cname"><col class="cacct"><col class="cqty"><col class="cprice"><col class="cavg"><col><col><col class="cgain"><col class="ctax"><col class="cdel"></colgroup><thead><tr><th>날짜</th><th>종목</th><th>계좌</th><th class="num">주수</th><th class="num">체결가</th><th class="num">매입가</th><th class="num">매도액(만)</th><th class="num">매수액(만)</th><th class="num">실현손익(만)</th><th>세금</th><th class="cdelh"></th></tr></thead><tbody>';
+  html+='<table class="histtbl"><colgroup><col class="cdate"><col class="cname"><col class="cacct"><col class="cqty"><col class="cprice"><col class="cavg"><col class="csell"><col class="cbuy"><col class="cgain"><col class="ctax"><col class="cdel"></colgroup><thead><tr><th>날짜</th><th>종목</th><th>계좌</th><th class="num">주수</th><th class="num">체결가</th><th class="num">매입가</th><th class="num">매도액(만)</th><th class="num">매수액(만)</th><th class="num">실현손익(만)</th><th>세금</th><th class="cdelh"></th></tr></thead><tbody>';
   [...SOLD].reverse().forEach((r,ri)=>{
     const realIdx=SOLD.length-1-ri;
     const sellAmt=r.mkt==='US'?r.qty*r.price*fx()/10000:r.qty*r.price/10000; // 매도액(만)
