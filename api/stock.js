@@ -669,18 +669,32 @@ async function fetchCOIN(sym) {
 // 한국 종목 검색: 네이버 금융 자동완성 API (전체 상장종목, 한글·코드 모두).
 async function searchKR(q) {
   try {
-    const url = 'https://ac.finance.naver.com/ac?q=' + encodeURIComponent(q) + '&q_enc=euc-kr&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&r_lt=111';
+    const url = 'https://ac.finance.naver.com/ac?q=' + encodeURIComponent(q) + '&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1';
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/' } });
     if (!r.ok) return [];
-    const j = await r.json();
-    // 네이버 응답: items[0] = 배열의 배열. 각 [코드, 종목명, ...]
-    const items = (j.items && j.items[0]) || [];
-    return items.map(row => {
-      const code = (row[0] && row[0][0]) || '';
-      const name = (row[1] && row[1][0]) || '';
-      if (!/^\d{6}$/.test(code)) return null;
-      return { symbol: code, name, market: 'KR', type: 'EQUITY', exch: 'KRX' };
-    }).filter(x => x).slice(0, 12);
+    const text = await r.text();
+    let j;
+    try { j = JSON.parse(text); } catch (e) { return []; }
+    // 네이버 응답 구조가 버전마다 달라 위치에 의존하지 않고 탐색:
+    // 각 결과 행에서 6자리 숫자(코드)와 한글 포함 문자열(종목명)을 찾아낸다.
+    const rows = (j.items && Array.isArray(j.items)) ? j.items.flat() : [];
+    const seen = new Set();
+    const out = [];
+    const walk = (node, bag) => {
+      if (Array.isArray(node)) node.forEach(n => walk(n, bag));
+      else if (typeof node === 'string') bag.push(node);
+    };
+    rows.forEach(row => {
+      const bag = [];
+      walk(row, bag);
+      const code = bag.find(s => /^\d{6}$/.test(s));
+      const name = bag.find(s => /[가-힣]/.test(s) && !/^\d+$/.test(s));
+      if (code && name && !seen.has(code)) {
+        seen.add(code);
+        out.push({ symbol: code, name: name.replace(/<[^>]+>/g, ''), market: 'KR', type: 'EQUITY', exch: 'KRX' });
+      }
+    });
+    return out.slice(0, 12);
   } catch (e) { return []; }
 }
 
