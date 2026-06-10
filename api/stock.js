@@ -453,7 +453,17 @@ async function fetchUS_SEC(ticker, mcap, debug) {
 
   // 후보 태그(회사마다 다름). 손익=flow(기간), 재무상태표=시점
   const rev = secAnnual(facts, ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet', 'SalesRevenueGoodsNet'], 'USD', true);
-  const op = secAnnual(facts, ['OperatingIncomeLoss'], 'USD', true);
+  let op = secAnnual(facts, ['OperatingIncomeLoss'], 'USD', true);
+  // 영업이익 표준태그 없으면: 매출 - 총비용(CostsAndExpenses)으로 역산
+  if (!op.length) {
+    const costs = secAnnual(facts, ['CostsAndExpenses', 'BenefitsLossesAndExpenses'], 'USD', true);
+    if (rev.length && costs.length) {
+      op = rev.map(rv => {
+        const c = costs.find(x => x.end === rv.end);
+        return c ? { end: rv.end, start: rv.start, val: rv.val - c.val } : null;
+      }).filter(x => x);
+    }
+  }
   const ni = secAnnual(facts, ['NetIncomeLoss', 'ProfitLoss'], 'USD', true);
   const eq = secAnnual(facts, ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'], 'USD', false);
   // 부채비율용 총부채: Liabilities 우선, 없으면 자산-자본
@@ -654,6 +664,23 @@ async function fetchCOIN(sym) {
   return out;
 }
 
+// USD/KRW 환율 (Yahoo KRW=X). 자동채우기 시 환율 입력칸 갱신용.
+async function fetchFX() {
+  try {
+    await yfGetCrumb();
+    // 1) chart API로 현재가
+    const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d',
+      { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
+    if (r.ok) {
+      const j = await r.json();
+      const res = j.chart && j.chart.result && j.chart.result[0];
+      const p = res && res.meta && (res.meta.regularMarketPrice || res.meta.previousClose);
+      if (typeof p === 'number' && p > 500 && p < 3000) return { rate: p, _src: 'YF KRW=X' };
+    }
+  } catch (e) {}
+  return { rate: null, _src: 'none' };
+}
+
 export default async function handler(req, res) {
   // CORS 허용
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -673,8 +700,10 @@ export default async function handler(req, res) {
     } else if (market === 'COIN') {
       const sym = ticker || symbol || code || 'BTC';
       out = await fetchCOIN(sym);
+    } else if (market === 'FX') {
+      out = await fetchFX();
     } else {
-      return res.status(400).json({ error: 'market=US/KR/COIN 필요' });
+      return res.status(400).json({ error: 'market=US/KR/COIN/FX 필요' });
     }
     res.status(200).json(out);
   } catch (e) {
