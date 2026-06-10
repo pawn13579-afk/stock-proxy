@@ -156,7 +156,7 @@
 </header>
 <div class="wrap">
   <div class="controls">
-    <div class="ctl"><label>환율 USD/KRW</label><input id="fx" class="num" value="1559" onchange="recalc()"></div>
+    <div class="ctl"><label>환율 USD/KRW <span style="color:var(--faint);font-size:9px">자동채우기 시 갱신</span></label><input id="fx" class="num" value="1559" onchange="recalc()"></div>
     <div class="ctl"><label>이번에 팔 금액(만원)</label><input id="tAmt" class="num" value="400" onchange="recalc()"></div>
     <div class="ctl"><label>올해 기실현 미국주차익(만원)</label><input id="usGainYTD" class="num" value="0" onchange="recalc()" title="올해 이미 매도해 실현한 미국주 양도차익. 250만 공제 잔여 계산용. 없으면 0"></div>
     <div class="ctl" style="flex:1;min-width:300px"><label>Vercel 프록시 주소</label><input id="proxyUrl" style="width:100%" placeholder="(같은 주소에 올렸으면 비워두세요)"></div>
@@ -342,7 +342,14 @@ function f_VOL(h){
   return pct(volRange,+1,h);
 }
 // ④ 집중도: 개별 종목 비중 클수록 매도우선(↑). 전 자산
-function f_CONC(h){return pct(x=>evalManwon(x),+1,h);}
+// ④ 집중도: 개별 종목의 포트폴리오 절대 비중. 클수록 매도우선(↑).
+//   순위(백분위)가 아닌 절대 비중 기반 — 팔아서 비중 줄면 집중도도 실제로 내려가야 함.
+//   비중 0%→1점, 15%+→10점 선형. (한 종목 15%↑는 명백한 과집중)
+function f_CONC(h){
+  const tot=totalEval()||1;
+  const pctv=evalManwon(h)/tot*100;
+  return Math.max(1, Math.min(10, 1 + pctv/15*9));
+}
 // ⑤ 세금: 미국주 차익 클수록 매도 부담(↓=낮은점수), 손실이면 상계가치(↑). 한국·코인 중립
 function f_TAX(h){
   if(h.mkt!=='US')return 5.5;
@@ -455,6 +462,12 @@ async function fillAll(){
   if(!PROXY && location.protocol==='file:'){alert('파일로 열면 프록시 주소가 필요합니다. 같은 Vercel 주소에 올리면 비워도 됩니다.');return;}
   saveData();
   const st=document.getElementById('fillStatus');
+  // 환율 먼저 갱신 (USD/KRW)
+  try{
+    st.textContent='환율 갱신 중…';
+    const fr=await (await fetch((PROXY||'')+'/api/stock?market=FX')).json();
+    if(fr&&fr.rate){const fxEl=document.getElementById('fx');if(fxEl){fxEl.value=Math.round(fr.rate*100)/100;}}
+  }catch(e){}
   const targets=HOLD.map((h,i)=>({h,i})).filter(x=>x.h.apiSym||x.h.mkt==='COIN');
   let ok=0,fail=0;
   const failed=[];
