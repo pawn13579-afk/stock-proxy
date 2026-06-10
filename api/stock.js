@@ -666,8 +666,35 @@ async function fetchCOIN(sym) {
   return out;
 }
 
-// 종목 검색 (자동완성용). 이름/티커 일부 → 매칭 후보 목록.
+// 한국 종목 검색: 네이버 금융 자동완성 API (전체 상장종목, 한글·코드 모두).
+async function searchKR(q) {
+  try {
+    const url = 'https://ac.finance.naver.com/ac?q=' + encodeURIComponent(q) + '&q_enc=euc-kr&st=111&frm=stock&r_format=json&r_enc=utf-8&r_unicode=0&t_koreng=1&r_lt=111';
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/' } });
+    if (!r.ok) return [];
+    const j = await r.json();
+    // 네이버 응답: items[0] = 배열의 배열. 각 [코드, 종목명, ...]
+    const items = (j.items && j.items[0]) || [];
+    return items.map(row => {
+      const code = (row[0] && row[0][0]) || '';
+      const name = (row[1] && row[1][0]) || '';
+      if (!/^\d{6}$/.test(code)) return null;
+      return { symbol: code, name, market: 'KR', type: 'EQUITY', exch: 'KRX' };
+    }).filter(x => x).slice(0, 12);
+  } catch (e) { return []; }
+}
+
+// 종목 검색 (자동완성용). 한글/한국코드 → 네이버, 영문/티커 → Yahoo.
 async function searchSymbols(q) {
+  const hasKorean = /[가-힣]/.test(q);
+  const isKRCode = /^\d{1,6}$/.test(q);
+  // 한글이거나 숫자코드면 한국 종목 검색 (네이버)
+  if (hasKorean || isKRCode) {
+    const kr = await searchKR(q);
+    if (kr.length) return { results: kr };
+    if (hasKorean) return { results: [] }; // 한글인데 없으면 한국종목 없는 것
+  }
+  // 영문/티커 → Yahoo (+ 한국 코드도 혹시 모르니 네이버 병행)
   const out = [];
   try {
     const r = await fetch('https://query1.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(q) + '&quotesCount=10&newsCount=0',
@@ -676,17 +703,16 @@ async function searchSymbols(q) {
       const j = await r.json();
       (j.quotes || []).forEach(it => {
         if (!it.symbol) return;
-        const t = it.quoteType; // EQUITY, ETF, CRYPTOCURRENCY 등
+        const t = it.quoteType;
         if (t !== 'EQUITY' && t !== 'ETF') return;
         let mkt = 'US', sym = it.symbol, name = it.shortname || it.longname || it.symbol;
-        // 한국 거래소: 티커가 .KS(코스피)/.KQ(코스닥) → 6자리 코드로
         if (/\.(KS|KQ)$/.test(it.symbol)) { mkt = 'KR'; sym = it.symbol.replace(/\.(KS|KQ)$/, ''); }
         else if (it.exchange === 'KSC' || it.exchange === 'KOE') { mkt = 'KR'; }
         out.push({ symbol: sym, name, market: mkt, type: t, exch: it.exchange || '' });
       });
     }
   } catch (e) {}
-  return { results: out };
+  return { results: out.slice(0, 12) };
 }
 
 // USD/KRW 환율 (Yahoo KRW=X). 자동채우기 시 환율 입력칸 갱신용.
