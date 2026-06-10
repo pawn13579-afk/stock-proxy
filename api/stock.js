@@ -357,14 +357,14 @@ async function yfTarget(ticker, debug) {
 async function yfQuote(ticker) {
   try {
     await yfGetCrumb();
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData,summaryDetail,defaultKeyStatistics` +
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData,summaryDetail,defaultKeyStatistics,price` +
       (_yfCrumb ? `&crumb=${encodeURIComponent(_yfCrumb)}` : '');
     const r = await fetch(url, { headers: { 'User-Agent': YF_UA, ...(_yfCookie ? { Cookie: _yfCookie } : {}) } });
     if (!r.ok) return null;
     const j = await r.json();
     const R = j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
     if (!R) return null;
-    const fd = R.financialData || {}, sd = R.summaryDetail || {}, ks = R.defaultKeyStatistics || {};
+    const fd = R.financialData || {}, sd = R.summaryDetail || {}, ks = R.defaultKeyStatistics || {}, pr = R.price || {};
     const num = (x) => (x && x.raw != null) ? x.raw : (typeof x === 'number' ? x : null);
     const tm = num(fd.targetMeanPrice);
     return {
@@ -373,6 +373,7 @@ async function yfQuote(ticker) {
       pbr: num(ks.priceToBook) || null,
       hi52: num(sd.fiftyTwoWeekHigh) || null,
       lo52: num(sd.fiftyTwoWeekLow) || null,
+      name: pr.longName || pr.shortName || null,
     };
   } catch (e) { return null; }
 }
@@ -605,6 +606,7 @@ async function fetchUS(ticker, debug) {
       if (base.pbr == null && yq.pbr != null) { base.pbr = yq.pbr; yfUsed = true; }
       if (base.lo52 == null && yq.lo52 != null) { base.lo52 = yq.lo52; yfUsed = true; }
       if (base.hi52 == null && yq.hi52 != null) { base.hi52 = yq.hi52; yfUsed = true; }
+      if (yq.name) { base.name = yq.name; } // 영문 회사명 (티커 대신)
     }
     if (closes && closes.length > 1) {
       // Yahoo 종가는 과거→최신 순 (배열 끝이 최신)
@@ -664,9 +666,31 @@ async function fetchCOIN(sym) {
   return out;
 }
 
-// USD/KRW 환율 (Yahoo KRW=X). 자동채우기 시 환율 입력칸 갱신용.
-async function fetchFX() {
+// 종목 검색 (자동완성용). 이름/티커 일부 → 매칭 후보 목록.
+async function searchSymbols(q) {
+  const out = [];
   try {
+    const r = await fetch('https://query1.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(q) + '&quotesCount=10&newsCount=0',
+      { headers: { 'User-Agent': YF_UA } });
+    if (r.ok) {
+      const j = await r.json();
+      (j.quotes || []).forEach(it => {
+        if (!it.symbol) return;
+        const t = it.quoteType; // EQUITY, ETF, CRYPTOCURRENCY 등
+        if (t !== 'EQUITY' && t !== 'ETF') return;
+        let mkt = 'US', sym = it.symbol, name = it.shortname || it.longname || it.symbol;
+        // 한국 거래소: 티커가 .KS(코스피)/.KQ(코스닥) → 6자리 코드로
+        if (/\.(KS|KQ)$/.test(it.symbol)) { mkt = 'KR'; sym = it.symbol.replace(/\.(KS|KQ)$/, ''); }
+        else if (it.exchange === 'KSC' || it.exchange === 'KOE') { mkt = 'KR'; }
+        out.push({ symbol: sym, name, market: mkt, type: t, exch: it.exchange || '' });
+      });
+    }
+  } catch (e) {}
+  return { results: out };
+}
+
+// USD/KRW 환율 (Yahoo KRW=X). 자동채우기 시 환율 입력칸 갱신용.
+async function fetchFX() {  try {
     await yfGetCrumb();
     // 1) chart API로 현재가
     const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d',
@@ -702,8 +726,12 @@ export default async function handler(req, res) {
       out = await fetchCOIN(sym);
     } else if (market === 'FX') {
       out = await fetchFX();
+    } else if (market === 'SEARCH') {
+      const q = req.query.q || ticker || symbol || '';
+      if (!q) return res.status(400).json({ error: 'q(검색어) 필요' });
+      out = await searchSymbols(q);
     } else {
-      return res.status(400).json({ error: 'market=US/KR/COIN/FX 필요' });
+      return res.status(400).json({ error: 'market=US/KR/COIN/FX/SEARCH 필요' });
     }
     res.status(200).json(out);
   } catch (e) {
