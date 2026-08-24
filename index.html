@@ -167,6 +167,9 @@
   .plan h3{font-family:'Archivo';font-size:15px;margin-bottom:4px}
   .plan .pn{color:var(--dim);font-size:12px;margin-bottom:12px}
   .planrow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .planacct{padding:4px 0 8px 14px;border-bottom:1px solid var(--line)}
+  .pa{font-size:11.5px;color:var(--dim);padding:1px 0;font-family:'Spline Sans Mono'}
+  .pa b{color:var(--fg);font-weight:600}
   .planrow .nm{font-weight:600}
   .planrow .amt{font-family:'Spline Sans Mono'}
   .empty{color:var(--faint);font-style:italic}
@@ -1207,7 +1210,47 @@ function renderSummary(){
 
   document.getElementById('summary').innerHTML=html;
 }
-function planLine(h,amt,cum,sig,tag,extra){return '<div class="planrow"><span class="nm">'+h.n+' <span style="color:var(--faint);font-weight:400">(매도신호 '+sig.toFixed(1)+(tag?', '+tag:'')+(extra?', '+extra:'')+')</span></span><span class="amt">'+cm(amt)+'만 · 누계 '+cm(cum)+'만</span></div>';}
+// 종목 h의 매도액 amt(만원)를 계좌(lot)에 배분: 평단 높은 lot부터 (절세·저수익 우선)
+function allocateToAccounts(h,amt){
+  const p=price(h); const conv=h.mkt==='US'?fx()/10000:1/10000;
+  // 각 lot의 평가액(만원)·평단, 보유 있는 것만
+  const lots=(h.lots||[]).filter(l=>l.qty>0).map(l=>({
+    acct:l.acct||'계좌', qty:l.qty, avg:l.avg,
+    evM:(p!=null)?p*l.qty*conv:0,
+    unit:h.mkt==='US'?'$':'₩'
+  }));
+  // 평단 높은 순 (avg 없으면 뒤로)
+  lots.sort((a,b)=>(b.avg!=null?b.avg:-1)-(a.avg!=null?a.avg:-1));
+  let remain=amt; const alloc=[];
+  for(const lot of lots){
+    if(remain<=0.01)break;
+    if(lot.evM<=0)continue;
+    const take=Math.min(remain, lot.evM); // 이 계좌에서 뺄 금액(만원)
+    const sh=(p!=null&&p>0)?take/conv/p:0;  // 주수
+    // 이 lot의 차익여부(미국주만 세금 의미)
+    let taxNote='';
+    if(h.mkt==='US'&&lot.avg!=null&&p!=null){taxNote=(p>=lot.avg)?'차익':'손실';}
+    alloc.push({acct:lot.acct, amt:take, avg:lot.avg, sh, unit:lot.unit, taxNote});
+    remain-=take;
+  }
+  return alloc;
+}
+function planLine(h,amt,cum,sig,tag,extra){
+  let s='<div class="planrow"><span class="nm">'+h.n+' <span style="color:var(--faint);font-weight:400">(매도신호 '+sig.toFixed(1)+(tag?', '+tag:'')+(extra?', '+extra:'')+')</span></span><span class="amt">'+cm(amt)+'만 · 누계 '+cm(cum)+'만</span></div>';
+  // 계좌별 배분 (평단 높은 계좌부터)
+  const alloc=allocateToAccounts(h,amt);
+  if(alloc.length){
+    s+='<div class="planacct">';
+    alloc.forEach((a,i)=>{
+      const avgStr=a.avg!=null?a.unit+cm(a.avg,2):'평단?';
+      const shStr=a.sh<1?a.sh.toFixed(3):Math.round(a.sh);
+      const taxTag=a.taxNote?' <span style="color:'+(a.taxNote==='차익'?'var(--warn)':'var(--pos)')+'">'+a.taxNote+'</span>':'';
+      s+='<div class="pa">'+(i===0?'▸ ':'　')+'<b>'+a.acct+'</b>에서 '+cm(a.amt)+'만 <span style="color:var(--faint)">(약 '+shStr+'주 · 평단 '+avgStr+')</span>'+taxTag+'</div>';
+    });
+    s+='</div>';
+  }
+  return s;
+}
 
 // ===== 매도 모델: 세후 기대효용 최대화 =====
 // 철학: 매도는 "기대수익 낮은 것을 빼되, 세금은 거래비용으로 차감하고, 한 종목·한 시점 쏠림은 리스크비용으로 차감"
